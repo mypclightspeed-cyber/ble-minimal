@@ -1,0 +1,3 @@
+<resources>
+    <style name="Theme.BleMinimal" parent="Theme.AppCompat.DayNight.NoActionBar" />
+</resources>
