@@ -2,10 +2,7 @@ package com.example.blescan
 
 import android.Manifest
 import android.bluetooth.*
-import android.bluetooth.le.BluetoothLeScanner
-import android.bluetooth.le.ScanCallback
-import android.bluetooth.le.ScanResult
-import android.bluetooth.le.ScanSettings
+import android.bluetooth.le.*
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -27,39 +24,40 @@ import kotlin.math.*
 
 class MainActivity : AppCompatActivity() {
 
-    // -------- Scan config --------
+    // --- scan/config ---
     private val SCAN_MS = 20_000L
     private val PERM_REQUEST = 1001
 
-    // -------- Amitis UUIDs & commands (notify/write in FF00 service) --------
-    private val Amitis_SERVICE = UUID.fromString("0000ff00-0000-1000-8000-00805f9b34fb")
-    private val Amitis_READ_CH = UUID.fromString("0000ff01-0000-1000-8000-00805f9b34fb")   // notify
-    private val Amitis_WRITE_CH = UUID.fromString("0000ff02-0000-1000-8000-00805f9b34fb")  // write
-    private val CMD_BASIC_INFO = hex("DD A5 03 00 FF FD 77") // V/I/SOC etc.
+    // --- Amitis BMS (FF00) ---
+    private val Amitis_SERVICE = uuid("0000ff00")
+    private val Amitis_READ_CH = uuid("0000ff01")   // notify
+    private val Amitis_WRITE_CH = uuid("0000ff02")  // write
+    private val CMD_BASIC_INFO = hex("DD A5 03 00 FF FD 77")
 
     private fun cmdReadRegister(reg: Int): ByteArray {
         val r = reg and 0xFF
-        val chk = (0x10000 - ((r + 0) and 0xFFFF)) and 0xFFFF
-        return byteArrayOf(
-            0xDD.toByte(), 0xA5.toByte(),
-            r.toByte(), 0x00,
-            ((chk shr 8) and 0xFF).toByte(), (chk and 0xFF).toByte(),
-            0x77.toByte()
-        )
+        val chk = (0x10000 - (r + 0)) and 0xFFFF
+        return byteArrayOf(0xDD.toByte(), 0xA5.toByte(), r.toByte(), 0x00,
+            ((chk shr 8) and 0xFF).toByte(), (chk and 0xFF).toByte(), 0x77.toByte())
     }
 
-    // -------- UI --------
+    // --- UI ---
     private lateinit var bannerWarn: TextView
     private lateinit var btnScan: Button
     private lateinit var list: ListView
-    private lateinit var socGauge: CircularFuelGauge
+    private lateinit var gauge: FancyFuelGauge
+
+    private lateinit var tvSOC: TextView
+    private lateinit var tvVolt: TextView
+    private lateinit var tvCurr: TextView
+    private lateinit var tvName: TextView // cleared when selecting a device
 
     private lateinit var adapterLv: ArrayAdapter<String>
     private val rows = mutableListOf<String>()                     // "MAC  Name"
     private val devices = LinkedHashMap<String, BluetoothDevice>() // MAC -> device
     private val advertisedName = HashMap<String, String>()         // MAC -> name from scan
 
-    // -------- BLE --------
+    // --- BLE ---
     private var bluetoothAdapter: BluetoothAdapter? = null
     private var scanner: BluetoothLeScanner? = null
     private var scanning = false
@@ -68,42 +66,73 @@ class MainActivity : AppCompatActivity() {
     private var gatt: BluetoothGatt? = null
     private var chNotify: BluetoothGattCharacteristic? = null
     private var chWrite: BluetoothGattCharacteristic? = null
-
-    // Amitis frame reassembly
     private val rxBuffer = ArrayList<Byte>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // --- top logo (optional; safe if file missing) ---
+        // top logo (optional)
         val logo = ImageView(this).apply {
             try { setImageResource(R.drawable.logo) } catch (_: Exception) {}
             adjustViewBounds = true
             scaleType = ImageView.ScaleType.FIT_CENTER
             layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, 160
+                LinearLayout.LayoutParams.MATCH_PARENT, 150
             ).apply { setMargins(16, 16, 16, 8) }
         }
 
-        // warning banner
         bannerWarn = TextView(this).apply {
             setPadding(20, 14, 20, 14)
             textSize = 14f
             setTextColor(Color.WHITE)
-            setBackgroundColor(Color.parseColor("#DC2626")) // red
+            setBackgroundColor(Color.parseColor("#DC2626"))
             visibility = View.GONE
         }
 
         btnScan = Button(this).apply { text = "Start Scan (20s)" }
         list = ListView(this)
 
-        socGauge = CircularFuelGauge(this).apply {
+        // Stylish semicircle fuel gauge (SOC only)
+        gauge = FancyFuelGauge(this).apply {
             layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                320
-            ).apply { setMargins(16, 12, 16, 16) }
-            setPercent(0)
+                LinearLayout.LayoutParams.MATCH_PARENT, 330
+            ).apply { setMargins(16, 10, 16, 6) }
             setLabel("SOC")
+            setPercent(0)
+        }
+
+        fun bigLabel(title: String): TextView = TextView(this).apply {
+            text = title
+            textSize = 18f
+            setTextColor(Color.parseColor("#374151"))
+        }
+        fun bigValue(): TextView = TextView(this).apply {
+            text = "-"
+            textSize = 36f   // 2× bigger
+            setTypeface(typeface, Typeface.BOLD) // bold
+            setTextColor(Color.parseColor("#111827"))
+        }
+
+        val lblSOC  = bigLabel("State of Charge")
+        tvSOC  = bigValue()
+        val lblVolt = bigLabel("Voltage")
+        tvVolt = bigValue()
+        val lblCurr = bigLabel("Current")
+        tvCurr = bigValue()
+
+        tvName = TextView(this).apply {
+            text = ""               // will be cleared on select
+            textSize = 14f
+            setTextColor(Color.parseColor("#6B7280"))
+        }
+
+        val valuesBox = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(16, 6, 16, 16)
+            addView(lblSOC);  addView(tvSOC)
+            addView(lblVolt); addView(tvVolt)
+            addView(lblCurr); addView(tvCurr)
+            addView(tvName)
         }
 
         val root = LinearLayout(this).apply {
@@ -112,8 +141,10 @@ class MainActivity : AppCompatActivity() {
             addView(logo)
             addView(bannerWarn)
             addView(btnScan)
-            addView(list, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
-            addView(socGauge)
+            addView(list, LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
+            addView(gauge)          // gauge ABOVE parameters
+            addView(valuesBox)
         }
         setContentView(root)
 
@@ -132,17 +163,18 @@ class MainActivity : AppCompatActivity() {
             val entry = adapterLv.getItem(pos) ?: return@setOnItemClickListener
             val mac = entry.substringBefore("  ")
             val dev = devices[mac] ?: return@setOnItemClickListener
+            // clear name immediately when one is selected
+            tvName.text = ""
             connectTo(dev)
         }
     }
 
     override fun onResume() {
         super.onResume()
-        // update warning banner whenever user returns from Settings
         updateWarningBanner()
     }
 
-    // ---------- prerequisites: BT + Location ----------
+    // ---------- BT/Location prerequisites ----------
     private fun ensurePrereqs(): Boolean {
         var ok = true
         val btOn = bluetoothAdapter?.isEnabled == true
@@ -155,9 +187,7 @@ class MainActivity : AppCompatActivity() {
                 .setMessage("Please enable Bluetooth to scan for BLE devices.")
                 .setPositiveButton("Open Bluetooth Settings") { _, _ ->
                     startActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS))
-                }
-                .setNegativeButton("Cancel", null)
-                .show()
+                }.setNegativeButton("Cancel", null).show()
         }
         if (!locOn) {
             ok = false
@@ -166,9 +196,7 @@ class MainActivity : AppCompatActivity() {
                 .setMessage("Location must be ON for BLE scanning on many Android versions.")
                 .setPositiveButton("Open Location Settings") { _, _ ->
                     startActivity(Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS))
-                }
-                .setNegativeButton("Cancel", null)
-                .show()
+                }.setNegativeButton("Cancel", null).show()
         }
         updateWarningBanner()
         return ok
@@ -178,31 +206,18 @@ class MainActivity : AppCompatActivity() {
         val btOn = bluetoothAdapter?.isEnabled == true
         val locOn = isLocationEnabled(this)
         when {
-            !btOn && !locOn -> {
-                bannerWarn.text = "Bluetooth and Location are OFF"
-                bannerWarn.visibility = View.VISIBLE
-            }
-            !btOn -> {
-                bannerWarn.text = "Bluetooth is OFF"
-                bannerWarn.visibility = View.VISIBLE
-            }
-            !locOn -> {
-                bannerWarn.text = "Location is OFF"
-                bannerWarn.visibility = View.VISIBLE
-            }
-            else -> {
-                bannerWarn.visibility = View.GONE
-            }
+            !btOn && !locOn -> { bannerWarn.text = "Bluetooth and Location are OFF"; bannerWarn.visibility = View.VISIBLE }
+            !btOn -> { bannerWarn.text = "Bluetooth is OFF"; bannerWarn.visibility = View.VISIBLE }
+            !locOn -> { bannerWarn.text = "Location is OFF"; bannerWarn.visibility = View.VISIBLE }
+            else -> bannerWarn.visibility = View.GONE
         }
     }
 
-    private fun isLocationEnabled(ctx: Context): Boolean {
-        return try {
-            val lm = ctx.getSystemService(Context.LOCATION_SERVICE) as LocationManager
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) lm.isLocationEnabled
-            else lm.isProviderEnabled(LocationManager.GPS_PROVIDER) || lm.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
-        } catch (_: Exception) { false }
-    }
+    private fun isLocationEnabled(ctx: Context): Boolean = try {
+        val lm = ctx.getSystemService(Context.LOCATION_SERVICE) as LocationManager
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) lm.isLocationEnabled
+        else lm.isProviderEnabled(LocationManager.GPS_PROVIDER) || lm.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
+    } catch (_: Exception) { false }
 
     // ---------- permissions ----------
     private fun checkAndRequestPermissions(): Boolean {
@@ -217,6 +232,7 @@ class MainActivity : AppCompatActivity() {
         else { ActivityCompat.requestPermissions(this, need.toTypedArray(), PERM_REQUEST); false }
     }
     private fun has(p: String) = ContextCompat.checkSelfPermission(this, p) == PackageManager.PERMISSION_GRANTED
+
     override fun onRequestPermissionsResult(rc: Int, p: Array<out String>, r: IntArray) {
         super.onRequestPermissionsResult(rc, p, r)
         if (rc == PERM_REQUEST && r.all { it == PackageManager.PERMISSION_GRANTED }) startScan()
@@ -245,9 +261,13 @@ class MainActivity : AppCompatActivity() {
         val ad = bluetoothAdapter
         if (ad == null || !ad.isEnabled) { toast("Turn ON Bluetooth"); updateWarningBanner(); return }
 
-        // reset UI
+        // reset UI on each new scan (clear gauge & values)
         devices.clear(); rows.clear(); adapterLv.clear(); advertisedName.clear()
-        socGauge.setPercent(0)
+        gauge.setPercent(0)
+        tvSOC.text = "-"
+        tvVolt.text = "-"
+        tvCurr.text = "-"
+        tvName.text = ""
 
         scanning = true
         toast("Scanning for ${SCAN_MS/1000}s…")
@@ -266,7 +286,7 @@ class MainActivity : AppCompatActivity() {
         scanning = false
     }
 
-    // ---------- connect / services ----------
+    // ---------- connect/services ----------
     private fun connectTo(device: BluetoothDevice) {
         stopScan()
         toast("Connecting to ${device.address}…")
@@ -296,7 +316,6 @@ class MainActivity : AppCompatActivity() {
                 if (svc == null || chNotify == null || chWrite == null) toast("Amitis FF00/FF01/FF02 not found")
                 else toast("Amitis BMS service ready")
             }
-            // enable notifications
             chNotify?.let { notifyCh ->
                 g.setCharacteristicNotification(notifyCh, true)
                 val cccd = notifyCh.getDescriptor(UUID.fromString("00002902-0000-1000-8000-00805f9b34fb"))
@@ -305,15 +324,11 @@ class MainActivity : AppCompatActivity() {
                     g.writeDescriptor(cccd)
                 }
             }
-            // request basic info (for SOC)
             handler.postDelayed({
                 chWrite?.let { w ->
                     w.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
-                    w.value = CMD_BASIC_INFO
-                    g.writeCharacteristic(w)
-                    // (optional) also request device name EEPROM 0xA1; not shown, but harmless
-                    w.value = cmdReadRegister(0xA1)
-                    g.writeCharacteristic(w)
+                    w.value = CMD_BASIC_INFO; g.writeCharacteristic(w)
+                    w.value = cmdReadRegister(0xA1); g.writeCharacteristic(w) // harmless extra query
                 }
             }, 300)
         }
@@ -323,7 +338,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    // ---------- Amitis frame handling ----------
+    // ---------- Amitis frames ----------
     private fun onAmitisBytes(chunk: ByteArray) {
         synchronized(rxBuffer) {
             chunk.forEach { rxBuffer.add(it) }
@@ -351,21 +366,36 @@ class MainActivity : AppCompatActivity() {
                 val got = (chkHi shl 8) or chkLo
                 if (expected != got || status != 0) continue
 
-                if (reg == 0x03) handleBasicInfo(payload) // we only care SOC now
+                if (reg == 0x03) handleBasicInfo(payload)
             }
         }
     }
 
-    // payload layout: voltage(2) current(2s) ... soc(1) at offset 19 in payload
+    // payload: voltage(2) current(2s) ... soc (byte) at offset 19 (within payload)
     private fun handleBasicInfo(p: ByteArray) {
         if (p.size < 24) return
+        val vRaw = ((p[0].toInt() and 0xFF) shl 8) or (p[1].toInt() and 0xFF)
+        val iRawU = ((p[2].toInt() and 0xFF) shl 8) or (p[3].toInt() and 0xFF)
+        var iRaw = iRawU
+        if ((iRaw and 0x8000) != 0) iRaw = -((iRaw xor 0xFFFF) + 1)
+        val voltage = vRaw / 100.0
+        val current = iRaw / 100.0
         val soc = p[19].toInt() and 0xFF
-        runOnUiThread { socGauge.setPercent(soc.coerceIn(0, 100)) }
+
+        runOnUiThread {
+            gauge.setPercent(soc.coerceIn(0, 100))
+            tvSOC.text = "$soc %"
+            tvVolt.text = String.format("%.3f V", voltage)
+            tvCurr.text = String.format("%.3f A", current)
+        }
     }
 
-    // ---------- helpers ----------
+    // --- helpers / utils ---
     private fun hex(s: String): ByteArray =
         s.split(Regex("\\s+")).filter { it.isNotBlank() }.map { it.toInt(16).toByte() }.toByteArray()
+
+    private fun uuid(short: String) =
+        UUID.fromString("$short-0000-1000-8000-00805f9b34fb")
 
     private fun stateName(s: Int) = when (s) {
         BluetoothProfile.STATE_CONNECTING -> "CONNECTING"
@@ -383,78 +413,106 @@ class MainActivity : AppCompatActivity() {
         super.onDestroy()
     }
 
-    // ======== Custom circular fuel gauge ========
-    class CircularFuelGauge(context: Context) : View(context) {
+    // ===== Fancy, stylish semicircle fuel gauge =====
+    class FancyFuelGauge(context: Context) : View(context) {
         private var pct = 0
         private var label = "SOC"
 
-        private val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        private val bgArc = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.parseColor("#E5E7EB") // gray-200
             style = Paint.Style.STROKE
-            strokeWidth = 22f
+            strokeWidth = 28f
             strokeCap = Paint.Cap.ROUND
         }
-        private val progPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.parseColor("#22C55E") // green
+
+        private val progArc = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             style = Paint.Style.STROKE
-            strokeWidth = 22f
+            strokeWidth = 28f
             strokeCap = Paint.Cap.ROUND
         }
+
         private val tickPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.parseColor("#9CA3AF") // gray-400
+            color = Color.parseColor("#9CA3AF")
             style = Paint.Style.STROKE
-            strokeWidth = 3f
+            strokeWidth = 3.5f
         }
-        private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.BLACK
+
+        private val needlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#111827")
+            style = Paint.Style.FILL
+        }
+
+        private val textBig = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#111827")
             textAlign = Paint.Align.CENTER
+            textSize = 40f
+            typeface = Typeface.create(Typeface.DEFAULT_BOLD, Typeface.BOLD)
+        }
+
+        private val textSmall = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#6B7280")
+            textAlign = Paint.Align.CENTER
+            textSize = 18f
         }
 
         fun setPercent(v: Int) {
             pct = v.coerceIn(0, 100)
-            // color by level
-            progPaint.color = when {
-                pct >= 80 -> Color.parseColor("#22C55E") // green
-                pct >= 30 -> Color.parseColor("#F59E0B") // amber
-                else      -> Color.parseColor("#EF4444") // red
-            }
             invalidate()
         }
+
         fun setLabel(s: String) { label = s; invalidate() }
 
         override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
             val w = MeasureSpec.getSize(widthMeasureSpec)
-            // Height ~ half circle + padding for text
-            val h = max( (w * 0.6f).roundToInt(), 220 )
+            val h = max((w * 0.62f).roundToInt(), 250)
             setMeasuredDimension(w, h)
         }
 
         override fun onDraw(c: Canvas) {
             super.onDraw(c)
-            val pad = 32f
+            val pad = 36f
             val w = width.toFloat()
             val h = height.toFloat()
-            val size = min(w, h * 1.8f) - pad*2
-            val left = (w - size) / 2f
-            val top  = pad
-            val rect = RectF(left, top, left + size, top + size)
+            val size = min(w - pad * 2, h * 1.9f - pad * 2)
+            val rect = RectF(
+                (w - size) / 2f,
+                pad,
+                (w + size) / 2f,
+                pad + size
+            )
 
-            // angles for semicircle (car fuel gauge style): -180..0 degrees
+            // gradient color for progress
+            val color = when {
+                pct >= 80 -> Color.parseColor("#22C55E")
+                pct >= 30 -> Color.parseColor("#F59E0B")
+                else      -> Color.parseColor("#EF4444")
+            }
+            val shader = SweepGradient(rect.centerX(), rect.centerY(),
+                intArrayOf(Color.parseColor("#06B6D4"), color),
+                floatArrayOf(0.0f, 1.0f)
+            )
+            progArc.shader = shader
+
+            // angles (semi circle)
             val startAngle = 180f
             val sweepTotal = 180f
-            // background arc
-            c.drawArc(rect, startAngle, sweepTotal, false, bgPaint)
-            // ticks every 10%
+            c.drawArc(rect, startAngle, sweepTotal, false, bgArc)
+
+            // ticks (every 10%)
             drawTicks(c, rect, startAngle, sweepTotal)
+
             // progress arc
             val sweep = sweepTotal * (pct / 100f)
-            c.drawArc(rect, startAngle, sweep, false, progPaint)
+            c.save()
+            c.drawArc(rect, startAngle, sweep, false, progArc)
 
-            // center text
-            textPaint.textSize = 44f
-            c.drawText("$pct%", w/2f, rect.centerY() + 22f, textPaint)
-            textPaint.textSize = 18f
-            c.drawText(label, w/2f, rect.centerY() + 54f, textPaint)
+            // needle
+            drawNeedle(c, rect, startAngle + sweep)
+            c.restore()
+
+            // center texts
+            c.drawText("$pct%", w / 2f, rect.centerY() + 22f, textBig)
+            c.drawText(label, w / 2f, rect.centerY() + 52f, textSmall)
         }
 
         private fun drawTicks(c: Canvas, rect: RectF, start: Float, sweep: Float) {
@@ -463,13 +521,36 @@ class MainActivity : AppCompatActivity() {
             val rOuter = rect.width() / 2f
             val rInner = rOuter - 18f
             for (i in 0..10) {
-                val a = Math.toRadians((start + sweep * (i/10f)).toDouble())
+                val a = Math.toRadians((start + sweep * (i / 10f)).toDouble())
                 val sx = (cx + rInner * cos(a)).toFloat()
                 val sy = (cy + rInner * sin(a)).toFloat()
                 val ex = (cx + rOuter * cos(a)).toFloat()
                 val ey = (cy + rOuter * sin(a)).toFloat()
                 c.drawLine(sx, sy, ex, ey, tickPaint)
             }
+        }
+
+        private fun drawNeedle(c: Canvas, rect: RectF, angleDeg: Float) {
+            val cx = rect.centerX()
+            val cy = rect.centerY()
+            val r = rect.width() / 2.2f
+            val a = Math.toRadians(angleDeg.toDouble())
+            val tipX = (cx + r * cos(a)).toFloat()
+            val tipY = (cy + r * sin(a)).toFloat()
+            val baseW = 14f
+            val back = 36f
+            val perp = a + Math.PI / 2
+            val b1x = (cx - back * cos(a) + baseW * cos(perp)).toFloat()
+            val b1y = (cy - back * sin(a) + baseW * sin(perp)).toFloat()
+            val b2x = (cx - back * cos(a) - baseW * cos(perp)).toFloat()
+            val b2y = (cy - back * sin(a) - baseW * sin(perp)).toFloat()
+            val path = Path()
+            path.moveTo(tipX, tipY)
+            path.lineTo(b1x, b1y)
+            path.lineTo(b2x, b2y)
+            path.close()
+            c.drawPath(path, needlePaint)
+            c.drawCircle(cx, cy, 10f, needlePaint)
         }
     }
 }
