@@ -3,6 +3,7 @@ package com.example.blescan
 import android.Manifest
 import android.bluetooth.*
 import android.bluetooth.le.*
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
@@ -11,29 +12,30 @@ import android.os.Handler
 import android.os.Looper
 import android.widget.ArrayAdapter
 import android.widget.Button
+import android.widget.EditText
 import android.widget.ListView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import androidx.core.widget.addTextChangedListener
 import java.util.UUID
 import kotlin.math.min
-import android.content.Intent
 
 class MainActivity : AppCompatActivity() {
 
-    // ---- tweak these ----
+    // ---- tweak these if needed ----
     private val SCAN_PERIOD_MS = 20_000L
-    private val NAME_FILTER = "YOUR_NAME_PART" // case-insensitive substring
-    private val SERVICE_UUID = UUID.fromString("0000180F-0000-1000-8000-00805F9B34FB") // TODO: replace
-    private val CHARACTERISTIC_UUID = UUID.fromString("00002A19-0000-1000-8000-00805F9B34FB") // TODO: replace (write)
-    private val CHUNK_SIZE = 20 // typical max. Change to device MTU if known.
-    // ---------------------
+    private val SERVICE_UUID = UUID.fromString("0000180F-0000-1000-8000-00805F9B34FB") // TODO replace (service)
+    private val CHARACTERISTIC_UUID = UUID.fromString("00002A19-0000-1000-8000-00805F9B34FB") // TODO replace (write char)
+    private val CHUNK_SIZE = 20
+    // -------------------------------
 
     private val PERM_REQUEST = 1001
     private lateinit var adapterLv: ArrayAdapter<String>
-    private val devices = LinkedHashMap<String, BluetoothDevice>() // addr -> device
+    private val devices = LinkedHashMap<String, BluetoothDevice>() // address -> device
+    private val allEntries = mutableListOf<String>()               // "MAC  Name" (for UI filtering)
     private var bluetoothAdapter: BluetoothAdapter? = null
     private var scanner: BluetoothLeScanner? = null
     private var scanning = false
@@ -54,10 +56,7 @@ class MainActivity : AppCompatActivity() {
             Toast.makeText(this, "No file selected", Toast.LENGTH_SHORT).show()
             return@registerForActivityResult
         }
-        contentResolver.takePersistableUriPermission(
-            uri,
-            Intent.FLAG_GRANT_READ_URI_PERMISSION
-        )
+        contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
         readFileBytes(uri)?.let { data ->
             selectedFileBytes = data
             Toast.makeText(this, "File loaded: ${data.size} bytes", Toast.LENGTH_SHORT).show()
@@ -68,9 +67,10 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // UI: Scan, Select File, List
+        // UI
+        val etFilter = EditText(this).apply { hint = "type to filter results…" }
         val btnScan = Button(this).apply { text = "Start Scan (20s)" }
-        val btnPick = Button(this).apply { text = "Select File" }
+        val btnPick = Button(this).apply { text = "Select File (optional)" }
         val list = ListView(this)
 
         adapterLv = ArrayAdapter(this, android.R.layout.simple_list_item_1, ArrayList())
@@ -79,6 +79,7 @@ class MainActivity : AppCompatActivity() {
         val layout = android.widget.LinearLayout(this).apply {
             orientation = android.widget.LinearLayout.VERTICAL
             addView(btnScan)
+            addView(etFilter)
             addView(btnPick)
             addView(list)
         }
@@ -90,15 +91,17 @@ class MainActivity : AppCompatActivity() {
         btnScan.setOnClickListener {
             if (checkAndRequestPermissions()) startScan()
         }
+        btnPick.setOnClickListener { pickFile.launch(arrayOf("*/*")) }
 
-        btnPick.setOnClickListener {
-            // Storage Access Framework — no storage permission needed
-            pickFile.launch(arrayOf("*/*")) // any file; narrow as needed
+        // live filter on the already-scanned list (client-side)
+        etFilter.addTextChangedListener { text ->
+            val q = text?.toString().orEmpty()
+            applyFilter(q)
         }
 
         list.setOnItemClickListener { _, _, pos, _ ->
             val entry = adapterLv.getItem(pos) ?: return@setOnItemClickListener
-            val addr = entry.substringBefore(" ")
+            val addr = entry.substringBefore("  ") // two spaces separator
             val device = devices[addr] ?: return@setOnItemClickListener
             connectToDevice(device)
         }
@@ -134,13 +137,11 @@ class MainActivity : AppCompatActivity() {
         override fun onScanResult(callbackType: Int, result: ScanResult) {
             val dev = result.device
             val name = dev.name ?: result.scanRecord?.deviceName ?: "Unknown"
-
-            if (NAME_FILTER.isNotEmpty() && !name.contains(NAME_FILTER, ignoreCase = true)) return
-
             val entry = "${dev.address}  $name"
             if (!devices.containsKey(dev.address)) {
                 devices[dev.address] = dev
-                adapterLv.add(entry)
+                allEntries.add(entry)            // keep master list
+                adapterLv.add(entry)             // show immediately
                 adapterLv.notifyDataSetChanged()
             }
         }
@@ -156,13 +157,17 @@ class MainActivity : AppCompatActivity() {
             return
         }
         devices.clear()
+        allEntries.clear()
         adapterLv.clear()
+
         scanning = true
         Toast.makeText(this, "Scanning for ${SCAN_PERIOD_MS / 1000}s...", Toast.LENGTH_SHORT).show()
 
         handler.postDelayed({ stopScan() }, SCAN_PERIOD_MS)
 
-        val settings = ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build()
+        val settings = ScanSettings.Builder()
+            .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
+            .build()
         scanner?.startScan(null, settings, scanCallback)
     }
 
@@ -171,6 +176,17 @@ class MainActivity : AppCompatActivity() {
         scanner?.stopScan(scanCallback)
         scanning = false
         Toast.makeText(this, "Scan stopped", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun applyFilter(query: String) {
+        adapterLv.clear()
+        if (query.isBlank()) {
+            adapterLv.addAll(allEntries)
+        } else {
+            val q = query.trim()
+            adapterLv.addAll(allEntries.filter { it.contains(q, ignoreCase = true) })
+        }
+        adapterLv.notifyDataSetChanged()
     }
 
     private fun connectToDevice(device: BluetoothDevice) {
@@ -211,10 +227,6 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }
-
-        override fun onCharacteristicWrite(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic, status: Int) {
-            // You can add progress feedback here if desired
-        }
     }
 
     private fun trySendFileIfReady() {
@@ -232,30 +244,21 @@ class MainActivity : AppCompatActivity() {
             val end = min(offset + CHUNK_SIZE, data.size)
             val chunk = data.copyOfRange(offset, end)
             ch.value = chunk
-
-            // Prefer WRITE_TYPE_NO_RESPONSE if supported by your device for speed
             ch.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
-
             val ok = gatt.writeCharacteristic(ch)
             if (!ok) {
-                runOnUiThread {
-                    Toast.makeText(this, "Write failed at $offset/${data.size}", Toast.LENGTH_SHORT).show()
-                }
+                runOnUiThread { Toast.makeText(this, "Write failed at $offset/${data.size}", Toast.LENGTH_SHORT).show() }
                 return
             }
             offset = end
-
-            // Throttle a little to avoid overruns; tune for your device
             try { Thread.sleep(10) } catch (_: InterruptedException) {}
         }
-        runOnUiThread {
-            Toast.makeText(this, "File sent (${data.size} bytes)", Toast.LENGTH_SHORT).show()
-        }
+        runOnUiThread { Toast.makeText(this, "File sent (${data.size} bytes)", Toast.LENGTH_SHORT).show() }
     }
 
     private fun readFileBytes(uri: Uri): ByteArray? = try {
         contentResolver.openInputStream(uri)?.use { it.readBytes() }
-    } catch (e: Exception) { null }
+    } catch (_: Exception) { null }
 
     override fun onDestroy() {
         stopScan()
