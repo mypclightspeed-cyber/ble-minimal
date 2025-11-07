@@ -16,7 +16,6 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import java.util.UUID
-import kotlin.math.min
 
 class MainActivity : AppCompatActivity() {
 
@@ -29,10 +28,14 @@ class MainActivity : AppCompatActivity() {
     private val JBD_READ_CH = UUID.fromString("0000ff01-0000-1000-8000-00805f9b34fb")   // notify
     private val JBD_WRITE_CH = UUID.fromString("0000ff02-0000-1000-8000-00805f9b34fb")  // write
     private val CMD_BASIC_INFO = hex("DD A5 03 00 FF FD 77") // voltage/current/soc
+
+    // GAP generic access → Device Name
+    private val GAP_SERVICE = UUID.fromString("00001800-0000-1000-8000-00805f9b34fb")
+    private val GAP_DEVICE_NAME = UUID.fromString("00002a00-0000-1000-8000-00805f9b34fb")
+
     private fun cmdReadRegister(reg: Int): ByteArray {
         val r = reg and 0xFF
-        val sum = (r + 0) and 0xFFFF
-        val chk = (0x10000 - sum) and 0xFFFF
+        val chk = (0x10000 - ((r + 0) and 0xFFFF)) and 0xFFFF
         return byteArrayOf(
             0xDD.toByte(), 0xA5.toByte(),
             r.toByte(), 0x00,
@@ -50,8 +53,9 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvSoc: TextView
 
     private lateinit var adapterLv: ArrayAdapter<String>
-    private val allEntries = mutableListOf<String>()               // "MAC  Name"
-    private val devices = LinkedHashMap<String, BluetoothDevice>() // MAC -> device
+    private val rows = mutableListOf<String>()                        // "MAC  Name"
+    private val devices = LinkedHashMap<String, BluetoothDevice>()    // MAC -> device
+    private val advertisedName = HashMap<String, String>()            // MAC -> name from scan
 
     // -------- BLE --------
     private var bluetoothAdapter: BluetoothAdapter? = null
@@ -97,7 +101,7 @@ class MainActivity : AppCompatActivity() {
             val entry = adapterLv.getItem(pos) ?: return@setOnItemClickListener
             val mac = entry.substringBefore("  ")
             val dev = devices[mac] ?: return@setOnItemClickListener
-            connectTo(dev)
+            connectTo(dev, advertisedName[mac] ?: "Unknown")
         }
     }
 
@@ -128,7 +132,8 @@ class MainActivity : AppCompatActivity() {
             val row = "${dev.address}  $name"
             if (!devices.containsKey(dev.address)) {
                 devices[dev.address] = dev
-                allEntries.add(row)
+                advertisedName[dev.address] = name
+                rows.add(row)
                 adapterLv.add(row)
                 adapterLv.notifyDataSetChanged()
             }
@@ -142,14 +147,14 @@ class MainActivity : AppCompatActivity() {
         if (ad == null || !ad.isEnabled) { toast("Turn ON Bluetooth"); return }
 
         // reset UI
-        devices.clear(); allEntries.clear(); adapterLv.clear()
+        devices.clear(); rows.clear(); adapterLv.clear(); advertisedName.clear()
         tvName.text = "Name: -"; tvVolt.text = "Voltage: -"; tvCurr.text = "Current: -"; tvSoc.text = "SOC: -"
 
         scanning = true
         toast("Scanning for ${SCAN_MS/1000}s…")
         handler.postDelayed({
             stopScan()
-            toast("Scan done: ${allEntries.size} device(s) found")
+            toast("Scan done: ${rows.size} device(s) found")
         }, SCAN_MS)
 
         val settings = ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build()
@@ -163,7 +168,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     // ---------- connect / services ----------
-    private fun connectTo(device: BluetoothDevice) {
+    private fun connectTo(device: BluetoothDevice, nameFromScan: String) {
         stopScan() // improve connect stability
         toast("Connecting to ${device.address}…")
         gatt?.close()
@@ -171,6 +176,9 @@ class MainActivity : AppCompatActivity() {
             device.connectGatt(this, false, gattCb, BluetoothDevice.TRANSPORT_LE)
         else
             device.connectGatt(this, false, gattCb)
+
+        // show the advertised name immediately as fallback
+        tvName.text = "Name: $nameFromScan"
     }
 
     private val gattCb = object : BluetoothGattCallback() {
@@ -185,6 +193,14 @@ class MainActivity : AppCompatActivity() {
         }
 
         override fun onServicesDiscovered(g: BluetoothGatt, status: Int) {
+            // 1) Try GAP Device Name (0x1800/0x2A00)
+            g.getService(GAP_SERVICE)?.getCharacteristic(GAP_DEVICE_NAME)?.let { gapNameCh ->
+                if ((gapNameCh.properties and BluetoothGattCharacteristic.PROPERTY_READ) != 0) {
+                    g.readCharacteristic(gapNameCh)
+                }
+            }
+
+            // 2) Prepare JBD service
             val svc = g.getService(JBD_SERVICE)
             chNotify = svc?.getCharacteristic(JBD_READ_CH)
             chWrite  = svc?.getCharacteristic(JBD_WRITE_CH)
@@ -205,7 +221,7 @@ class MainActivity : AppCompatActivity() {
                 }
             }
 
-            // request basic info + device name
+            // 3) Ask JBD: basic info + EEPROM name (0xA1)
             handler.postDelayed({
                 chWrite?.let { w ->
                     w.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
@@ -216,6 +232,13 @@ class MainActivity : AppCompatActivity() {
                     g.writeCharacteristic(w)
                 }
             }, 300)
+        }
+
+        override fun onCharacteristicRead(g: BluetoothGatt, ch: BluetoothGattCharacteristic, status: Int) {
+            if (status == BluetoothGatt.GATT_SUCCESS && ch.uuid == GAP_DEVICE_NAME) {
+                val s = try { String(ch.value ?: byteArrayOf(), Charsets.UTF_8).trim() } catch (_: Exception) { "" }
+                if (s.isNotEmpty()) runOnUiThread { tvName.text = "Name: $s" }
+            }
         }
 
         override fun onCharacteristicChanged(g: BluetoothGatt, characteristic: BluetoothGattCharacteristic) {
@@ -254,14 +277,14 @@ class MainActivity : AppCompatActivity() {
                 if (expected != got || status != 0) continue
 
                 when (reg) {
-                    0x03 -> handleBasicInfo(payload)   // V / I / SOC
-                    0xA1 -> handleDeviceName(payload)  // Name
+                    0x03 -> handleBasicInfo(payload)     // V / I / SOC
+                    0xA1 -> handleDeviceName(payload)    // EEPROM name (if provided)
                 }
             }
         }
     }
 
-    // payload layout: voltage(2) current(2s) ... soc(1) at offset 19 in payload (matches JBD basic info)
+    // payload layout: voltage(2) current(2s) ... soc(1) at offset 19 in payload
     private fun handleBasicInfo(p: ByteArray) {
         if (p.size < 24) return
         val vRaw = ((p[0].toInt() and 0xFF) shl 8) or (p[1].toInt() and 0xFF)
@@ -280,6 +303,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun handleDeviceName(p0: ByteArray) {
         var p = p0
+        // some firmwares prepend length byte
         if (p.isNotEmpty() && (p[0].toInt() and 0xFF) == (p.size - 1)) p = p.copyOfRange(1, p.size)
         val name = try { String(p.dropLastWhile { it == 0.toByte() }.toByteArray(), Charsets.US_ASCII).trim() } catch (_: Exception) { "" }
         if (name.isNotEmpty()) runOnUiThread { tvName.text = "Name: $name" }
