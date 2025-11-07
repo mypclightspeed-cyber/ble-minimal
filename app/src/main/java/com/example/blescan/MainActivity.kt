@@ -10,12 +10,9 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
-import android.widget.ArrayAdapter
-import android.widget.Button
-import android.widget.EditText
-import android.widget.ListView
-import android.widget.Toast
+import android.widget.*
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
@@ -27,10 +24,22 @@ class MainActivity : AppCompatActivity() {
 
     // ---- tweak these if needed ----
     private val SCAN_PERIOD_MS = 20_000L
-    private val SERVICE_UUID = UUID.fromString("0000180F-0000-1000-8000-00805F9B34FB") // TODO replace (service)
-    private val CHARACTERISTIC_UUID = UUID.fromString("00002A19-0000-1000-8000-00805F9B34FB") // TODO replace (write char)
+    private val SERVICE_UUID_SEND = UUID.fromString("0000180F-0000-1000-8000-00805F9B34FB") // TODO replace (service for sending)
+    private val CHARACTERISTIC_UUID_SEND = UUID.fromString("00002A19-0000-1000-8000-00805F9B34FB") // TODO replace (write char)
     private val CHUNK_SIZE = 20
     // -------------------------------
+
+    // Device Information Service & characteristic UUIDs
+    private val DIS_SERVICE = uuid16(0x180A)
+    private val DIS_CHARS: List<Pair<String, UUID>> = listOf(
+        "Manufacturer" to uuid16(0x2A29),
+        "Model Number" to uuid16(0x2A24),
+        "Serial Number" to uuid16(0x2A25),
+        "Hardware Rev" to uuid16(0x2A27),
+        "Firmware Rev" to uuid16(0x2A26),
+        "Software Rev" to uuid16(0x2A28),
+        "System ID"     to uuid16(0x2A23)
+    )
 
     private val PERM_REQUEST = 1001
     private lateinit var adapterLv: ArrayAdapter<String>
@@ -47,6 +56,13 @@ class MainActivity : AppCompatActivity() {
 
     // selected file
     private var selectedFileBytes: ByteArray? = null
+
+    // UI references we need to enable/disable
+    private lateinit var btnReadInfo: Button
+
+    // queue & map for DIS reads
+    private val disQueue: ArrayDeque<Pair<String, BluetoothGattCharacteristic>> = ArrayDeque()
+    private val disResults: MutableMap<String, String> = linkedMapOf()
 
     // SAF file picker
     private val pickFile = registerForActivityResult(
@@ -68,18 +84,23 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
 
         // UI
-        val etFilter = EditText(this).apply { hint = "type to filter results…" }
         val btnScan = Button(this).apply { text = "Start Scan (20s)" }
+        val etFilter = EditText(this).apply { hint = "type to filter results…" }
+        btnReadInfo = Button(this).apply {
+            text = "Read Device Info"
+            isEnabled = false
+        }
         val btnPick = Button(this).apply { text = "Select File (optional)" }
         val list = ListView(this)
 
         adapterLv = ArrayAdapter(this, android.R.layout.simple_list_item_1, ArrayList())
         list.adapter = adapterLv
 
-        val layout = android.widget.LinearLayout(this).apply {
-            orientation = android.widget.LinearLayout.VERTICAL
+        val layout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
             addView(btnScan)
             addView(etFilter)
+            addView(btnReadInfo)
             addView(btnPick)
             addView(list)
         }
@@ -92,8 +113,9 @@ class MainActivity : AppCompatActivity() {
             if (checkAndRequestPermissions()) startScan()
         }
         btnPick.setOnClickListener { pickFile.launch(arrayOf("*/*")) }
+        btnReadInfo.setOnClickListener { readDeviceInfo() }
 
-        // live filter on the already-scanned list (client-side)
+        // client-side filter after scan
         etFilter.addTextChangedListener { text ->
             val q = text?.toString().orEmpty()
             applyFilter(q)
@@ -101,7 +123,7 @@ class MainActivity : AppCompatActivity() {
 
         list.setOnItemClickListener { _, _, pos, _ ->
             val entry = adapterLv.getItem(pos) ?: return@setOnItemClickListener
-            val addr = entry.substringBefore("  ") // two spaces separator
+            val addr = entry.substringBefore("  ")
             val device = devices[addr] ?: return@setOnItemClickListener
             connectToDevice(device)
         }
@@ -133,6 +155,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    // ---- Scanning ----
     private val scanCallback = object : ScanCallback() {
         override fun onScanResult(callbackType: Int, result: ScanResult) {
             val dev = result.device
@@ -140,8 +163,8 @@ class MainActivity : AppCompatActivity() {
             val entry = "${dev.address}  $name"
             if (!devices.containsKey(dev.address)) {
                 devices[dev.address] = dev
-                allEntries.add(entry)            // keep master list
-                adapterLv.add(entry)             // show immediately
+                allEntries.add(entry)
+                adapterLv.add(entry)
                 adapterLv.notifyDataSetChanged()
             }
         }
@@ -159,10 +182,10 @@ class MainActivity : AppCompatActivity() {
         devices.clear()
         allEntries.clear()
         adapterLv.clear()
+        btnReadInfo.isEnabled = false
 
         scanning = true
         Toast.makeText(this, "Scanning for ${SCAN_PERIOD_MS / 1000}s...", Toast.LENGTH_SHORT).show()
-
         handler.postDelayed({ stopScan() }, SCAN_PERIOD_MS)
 
         val settings = ScanSettings.Builder()
@@ -189,6 +212,7 @@ class MainActivity : AppCompatActivity() {
         adapterLv.notifyDataSetChanged()
     }
 
+    // ---- Connect / GATT ----
     private fun connectToDevice(device: BluetoothDevice) {
         Toast.makeText(this, "Connecting to ${device.address}", Toast.LENGTH_SHORT).show()
         currentGatt?.close()
@@ -208,6 +232,7 @@ class MainActivity : AppCompatActivity() {
                 } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
                     Toast.makeText(this@MainActivity, "Disconnected", Toast.LENGTH_SHORT).show()
                     writeCharacteristic = null
+                    btnReadInfo.isEnabled = false
                     currentGatt?.close()
                     currentGatt = null
                 }
@@ -215,20 +240,88 @@ class MainActivity : AppCompatActivity() {
         }
 
         override fun onServicesDiscovered(gatt: BluetoothGatt, status: Int) {
-            val svc = gatt.getService(SERVICE_UUID)
-            val ch = svc?.getCharacteristic(CHARACTERISTIC_UUID)
-            writeCharacteristic = ch
+            // Prepare write char (optional feature)
+            val svcSend = gatt.getService(SERVICE_UUID_SEND)
+            writeCharacteristic = svcSend?.getCharacteristic(CHARACTERISTIC_UUID_SEND)
+
+            // Enable Device Info button only if we have the service or we'll still try (some devices expose late)
+            btnReadInfo.isEnabled = gatt.getService(DIS_SERVICE) != null
+
             runOnUiThread {
-                if (ch != null) {
+                if (writeCharacteristic != null) {
                     Toast.makeText(this@MainActivity, "Write characteristic ready", Toast.LENGTH_SHORT).show()
-                    trySendFileIfReady()
                 } else {
-                    Toast.makeText(this@MainActivity, "Characteristic not found. Check UUIDs.", Toast.LENGTH_LONG).show()
+                    // It's fine if not present — feature is optional
                 }
             }
         }
+
+        override fun onCharacteristicRead(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic, status: Int) {
+            // handle DIS read chain
+            if (status == BluetoothGatt.GATT_SUCCESS) {
+                // find label by uuid
+                val label = DIS_CHARS.firstOrNull { it.second == characteristic.uuid }?.first ?: characteristic.uuid.toString()
+                val valueStr = bytesToString(characteristic.value)
+                disResults[label] = valueStr
+            }
+            // continue with next characteristic in queue
+            readNextDIS(gatt)
+        }
     }
 
+    // ---- Device Information read flow ----
+    private fun readDeviceInfo() {
+        val gatt = currentGatt ?: run {
+            Toast.makeText(this, "Not connected", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val svc = gatt.getService(DIS_SERVICE)
+        if (svc == null) {
+            Toast.makeText(this, "Device Information Service not found", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        // Build queue of available DIS characteristics on this device
+        disQueue.clear()
+        disResults.clear()
+        for ((label, uuid) in DIS_CHARS) {
+            svc.getCharacteristic(uuid)?.let { ch ->
+                disQueue.add(label to ch)
+            }
+        }
+        if (disQueue.isEmpty()) {
+            Toast.makeText(this, "No DIS characteristics available", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        Toast.makeText(this, "Reading device info…", Toast.LENGTH_SHORT).show()
+        readNextDIS(gatt)
+    }
+
+    private fun readNextDIS(gatt: BluetoothGatt) {
+        if (disQueue.isEmpty()) {
+            // Done — show results
+            runOnUiThread {
+                val msg = if (disResults.isEmpty()) "No data" else disResults.entries.joinToString("\n") { "${it.key}: ${it.value}" }
+                AlertDialog.Builder(this)
+                    .setTitle("Device Information")
+                    .setMessage(msg)
+                    .setPositiveButton("OK", null)
+                    .show()
+            }
+            return
+        }
+        val (_, ch) = disQueue.removeFirst()
+        // Some stacks require READ type; ensure properties allow read
+        val canRead = (ch.properties and BluetoothGattCharacteristic.PROPERTY_READ) != 0
+        if (!canRead) {
+            readNextDIS(gatt) // skip
+            return
+        }
+        gatt.readCharacteristic(ch)
+    }
+
+    // ---- File send (optional) ----
     private fun trySendFileIfReady() {
         val gatt = currentGatt ?: return
         val ch = writeCharacteristic ?: return
@@ -256,9 +349,25 @@ class MainActivity : AppCompatActivity() {
         runOnUiThread { Toast.makeText(this, "File sent (${data.size} bytes)", Toast.LENGTH_SHORT).show() }
     }
 
+    // ---- helpers ----
     private fun readFileBytes(uri: Uri): ByteArray? = try {
         contentResolver.openInputStream(uri)?.use { it.readBytes() }
     } catch (_: Exception) { null }
+
+    private fun bytesToString(bytes: ByteArray?): String {
+        if (bytes == null) return ""
+        // Try UTF-8 printable; fallback to hex
+        return try {
+            val s = String(bytes, Charsets.UTF_8).trim()
+            if (s.isNotEmpty() && s.any { it.isLetterOrDigit() || it.isWhitespace() || it in "-_.,/#()" }) s
+            else bytes.joinToString(separator = " ") { "%02X".format(it) }
+        } catch (_: Exception) {
+            bytes.joinToString(separator = " ") { "%02X".format(it) }
+        }
+    }
+
+    private fun uuid16(short: Int): UUID =
+        UUID.fromString("0000%04X-0000-1000-8000-00805F9B34FB".format(short))
 
     override fun onDestroy() {
         stopScan()
