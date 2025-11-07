@@ -2,12 +2,13 @@ name: Android CI (Build APK)
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [ main ]
   pull_request:
 
 jobs:
   build:
     runs-on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@v4
 
@@ -16,28 +17,28 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      # Android SDK (gives you sdkmanager)
+      # install android sdk + cmdline
       - uses: android-actions/setup-android@v3
 
-      - name: Accept licenses & install SDK
+      - name: accept licenses + install sdk 34
         run: |
           yes | sdkmanager --licenses
-          sdkmanager --install "platform-tools" "platforms;android-33" "build-tools;33.0.2"
+          sdkmanager --install "platform-tools" "platforms;android-34" "build-tools;34.0.0"
 
-      # Generate Gradle wrapper (since gradle-wrapper.jar is missing)
-      - name: Generate Gradle wrapper
+      # generate wrapper (because wrapper jar missing)
+      - name: generate gradle wrapper
         uses: gradle/gradle-build-action@v2
         with:
           gradle-version: 8.7
           arguments: wrapper
 
-      - name: Make gradlew executable
+      - name: make gradlew executable
         run: chmod +x ./gradlew
 
-      - name: Build Debug APK
+      - name: build debug apk
         run: ./gradlew assembleDebug
 
-      - name: Upload APK artifact
+      - name: upload apk artifact
         uses: actions/upload-artifact@v4
         with:
           name: app-debug-apk
