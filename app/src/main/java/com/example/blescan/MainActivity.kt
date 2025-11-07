@@ -7,15 +7,19 @@ import android.bluetooth.le.ScanCallback
 import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
 import android.content.pm.PackageManager
+import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.view.Gravity
 import android.widget.*
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import java.util.UUID
+import kotlin.math.max
+import kotlin.math.min
 
 class MainActivity : AppCompatActivity() {
 
@@ -47,15 +51,26 @@ class MainActivity : AppCompatActivity() {
     // -------- UI --------
     private lateinit var btnScan: Button
     private lateinit var list: ListView
+
+    // cards
+    private lateinit var cardName: LinearLayout
+    private lateinit var cardVolt: LinearLayout
+    private lateinit var cardCurr: LinearLayout
+    private lateinit var cardSoc: LinearLayout
+
+    // fields
     private lateinit var tvName: TextView
     private lateinit var tvVolt: TextView
     private lateinit var tvCurr: TextView
     private lateinit var tvSoc: TextView
 
+    // gauge
+    private lateinit var socBar: ProgressBar
+
     private lateinit var adapterLv: ArrayAdapter<String>
-    private val rows = mutableListOf<String>()                        // "MAC  Name"
-    private val devices = LinkedHashMap<String, BluetoothDevice>()    // MAC -> device
-    private val advertisedName = HashMap<String, String>()            // MAC -> name from scan
+    private val rows = mutableListOf<String>()                     // "MAC  Name"
+    private val devices = LinkedHashMap<String, BluetoothDevice>() // MAC -> device
+    private val advertisedName = HashMap<String, String>()         // MAC -> name from scan
 
     // -------- BLE --------
     private var bluetoothAdapter: BluetoothAdapter? = null
@@ -73,27 +88,102 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Simple UI: scan + list + 4 readouts
-        btnScan = Button(this).apply { text = "Start Scan (20s)" }
+        // ---------- build UI programmatically ----------
+        // your logo at the top
+        val logo = ImageView(this).apply {
+            setImageResource(R.drawable.logo) // <-- uses res/drawable/logo.png
+            adjustViewBounds = true
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                160
+            ).apply {
+                setMargins(16, 16, 16, 8)
+                gravity = Gravity.CENTER_HORIZONTAL
+            }
+        }
+
+        btnScan = Button(this).apply {
+            text = "Start Scan (20s)"
+        }
         list = ListView(this)
-        tvName = TextView(this).apply { textSize = 16f; text = "Name: -" }
-        tvVolt = TextView(this).apply { textSize = 16f; text = "Voltage: -" }
-        tvCurr = TextView(this).apply { textSize = 16f; text = "Current: -" }
-        tvSoc  = TextView(this).apply { textSize = 16f; text = "SOC: -" }
 
-        adapterLv = ArrayAdapter(this, android.R.layout.simple_list_item_1, ArrayList())
-        list.adapter = adapterLv
+        fun makeCard(title: String, bgHex: String): Pair<LinearLayout, TextView> {
+            val bgColor = Color.parseColor(bgHex)
+            val outer = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(24, 20, 24, 20)
+                setBackgroundColor(bgColor)
+                val lp = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                )
+                lp.setMargins(16, 12, 16, 12)
+                layoutParams = lp
+                elevation = 6f
+            }
+            val label = TextView(this).apply {
+                text = title
+                setTextColor(Color.WHITE)
+                textSize = 12f
+            }
+            val value = TextView(this).apply {
+                text = "-"
+                setTextColor(Color.WHITE)
+                textSize = 20f
+                setPadding(0, 6, 0, 0)
+            }
+            outer.addView(label)
+            outer.addView(value)
+            return outer to value
+        }
 
-        val layout = LinearLayout(this).apply {
+        val (cardNameView, tvNameView) = makeCard("Name", "#3B82F6")     // blue
+        val (cardVoltView, tvVoltView) = makeCard("Voltage (V)", "#10B981") // green
+        val (cardCurrView, tvCurrView) = makeCard("Current (A)", "#F59E0B") // amber
+        val (cardSocView,  tvSocView)  = makeCard("SOC (%)",    "#8B5CF6") // violet
+
+        cardName = cardNameView; tvName = tvNameView
+        cardVolt = cardVoltView; tvVolt = tvVoltView
+        cardCurr = cardCurrView; tvCurr = tvCurrView
+        cardSoc  = cardSocView;  tvSoc  = tvSocView
+
+        // SOC gauge
+        socBar = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
+            max = 100
+            progress = 0
+            isIndeterminate = false
+            val lp = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                22
+            )
+            lp.setMargins(0, 12, 0, 0)
+            layoutParams = lp
+            progressDrawable = resources.getDrawable(android.R.drawable.progress_horizontal, theme)
+        }
+        cardSoc.addView(socBar)
+
+        // main container
+        val top = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
+            setPadding(12, 12, 12, 12)
+            addView(logo)
             addView(btnScan)
             addView(list, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
-            addView(tvName); addView(tvVolt); addView(tvCurr); addView(tvSoc)
+            addView(cardName)
+            addView(cardVolt)
+            addView(cardCurr)
+            addView(cardSoc)
         }
-        setContentView(layout)
+
+        setContentView(top)
+        // -----------------------------------------------
 
         bluetoothAdapter = (getSystemService(BLUETOOTH_SERVICE) as BluetoothManager).adapter
         scanner = bluetoothAdapter?.bluetoothLeScanner
+
+        adapterLv = ArrayAdapter(this, android.R.layout.simple_list_item_1, ArrayList())
+        list.adapter = adapterLv
 
         btnScan.setOnClickListener { if (checkAndRequestPermissions()) startScan() }
 
@@ -148,7 +238,7 @@ class MainActivity : AppCompatActivity() {
 
         // reset UI
         devices.clear(); rows.clear(); adapterLv.clear(); advertisedName.clear()
-        tvName.text = "Name: -"; tvVolt.text = "Voltage: -"; tvCurr.text = "Current: -"; tvSoc.text = "SOC: -"
+        setName("-"); setVoltage(0.0); setCurrent(0.0); setSoc(0)
 
         scanning = true
         toast("Scanning for ${SCAN_MS/1000}s…")
@@ -169,7 +259,7 @@ class MainActivity : AppCompatActivity() {
 
     // ---------- connect / services ----------
     private fun connectTo(device: BluetoothDevice, nameFromScan: String) {
-        stopScan() // improve connect stability
+        stopScan()
         toast("Connecting to ${device.address}…")
         gatt?.close()
         gatt = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M)
@@ -177,8 +267,8 @@ class MainActivity : AppCompatActivity() {
         else
             device.connectGatt(this, false, gattCb)
 
-        // show the advertised name immediately as fallback
-        tvName.text = "Name: $nameFromScan"
+        // fallback show
+        setName(nameFromScan)
     }
 
     private val gattCb = object : BluetoothGattCallback() {
@@ -193,25 +283,24 @@ class MainActivity : AppCompatActivity() {
         }
 
         override fun onServicesDiscovered(g: BluetoothGatt, status: Int) {
-            // 1) Try GAP Device Name (0x1800/0x2A00)
+            // GAP device name
             g.getService(GAP_SERVICE)?.getCharacteristic(GAP_DEVICE_NAME)?.let { gapNameCh ->
                 if ((gapNameCh.properties and BluetoothGattCharacteristic.PROPERTY_READ) != 0) {
                     g.readCharacteristic(gapNameCh)
                 }
             }
 
-            // 2) Prepare JBD service
+            // JBD service
             val svc = g.getService(JBD_SERVICE)
             chNotify = svc?.getCharacteristic(JBD_READ_CH)
             chWrite  = svc?.getCharacteristic(JBD_WRITE_CH)
-
             runOnUiThread {
                 if (svc == null || chNotify == null || chWrite == null) {
                     toast("JBD FF00/FF01/FF02 not found")
                 } else toast("JBD service ready")
             }
 
-            // enable notifications on FF01
+            // enable notifications
             chNotify?.let { notifyCh ->
                 g.setCharacteristicNotification(notifyCh, true)
                 val cccd = notifyCh.getDescriptor(UUID.fromString("00002902-0000-1000-8000-00805f9b34fb"))
@@ -221,15 +310,12 @@ class MainActivity : AppCompatActivity() {
                 }
             }
 
-            // 3) Ask JBD: basic info + EEPROM name (0xA1)
+            // Ask JBD: basic info + EEPROM name
             handler.postDelayed({
                 chWrite?.let { w ->
                     w.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
-                    w.value = CMD_BASIC_INFO
-                    g.writeCharacteristic(w)
-
-                    w.value = cmdReadRegister(0xA1)
-                    g.writeCharacteristic(w)
+                    w.value = CMD_BASIC_INFO; g.writeCharacteristic(w)
+                    w.value = cmdReadRegister(0xA1); g.writeCharacteristic(w)
                 }
             }, 300)
         }
@@ -237,7 +323,7 @@ class MainActivity : AppCompatActivity() {
         override fun onCharacteristicRead(g: BluetoothGatt, ch: BluetoothGattCharacteristic, status: Int) {
             if (status == BluetoothGatt.GATT_SUCCESS && ch.uuid == GAP_DEVICE_NAME) {
                 val s = try { String(ch.value ?: byteArrayOf(), Charsets.UTF_8).trim() } catch (_: Exception) { "" }
-                if (s.isNotEmpty()) runOnUiThread { tvName.text = "Name: $s" }
+                if (s.isNotEmpty()) runOnUiThread { setName(s) }
             }
         }
 
@@ -277,8 +363,8 @@ class MainActivity : AppCompatActivity() {
                 if (expected != got || status != 0) continue
 
                 when (reg) {
-                    0x03 -> handleBasicInfo(payload)     // V / I / SOC
-                    0xA1 -> handleDeviceName(payload)    // EEPROM name (if provided)
+                    0x03 -> handleBasicInfo(payload)
+                    0xA1 -> handleDeviceName(payload)
                 }
             }
         }
@@ -295,18 +381,50 @@ class MainActivity : AppCompatActivity() {
         val current = iRaw / 100.0
         val soc = p[19].toInt() and 0xFF
         runOnUiThread {
-            tvVolt.text = String.format("Voltage: %.3f V", voltage)
-            tvCurr.text = String.format("Current: %.3f A", current)
-            tvSoc.text  = "SOC: $soc %"
+            setVoltage(voltage)
+            setCurrent(current)
+            setSoc(soc)
         }
     }
 
     private fun handleDeviceName(p0: ByteArray) {
         var p = p0
-        // some firmwares prepend length byte
         if (p.isNotEmpty() && (p[0].toInt() and 0xFF) == (p.size - 1)) p = p.copyOfRange(1, p.size)
         val name = try { String(p.dropLastWhile { it == 0.toByte() }.toByteArray(), Charsets.US_ASCII).trim() } catch (_: Exception) { "" }
-        if (name.isNotEmpty()) runOnUiThread { tvName.text = "Name: $name" }
+        if (name.isNotEmpty()) runOnUiThread { setName(name) }
+    }
+
+    // ---------- pretty UI setters ----------
+    private fun setName(s: String) {
+        tvName.text = s
+    }
+
+    private fun setVoltage(v: Double) {
+        tvVolt.text = String.format("%.3f V", v)
+        val shade = when {
+            v >= 54 -> "#059669"
+            v >= 48 -> "#10B981"
+            else    -> "#34D399"
+        }
+        cardVolt.setBackgroundColor(Color.parseColor(shade))
+    }
+
+    private fun setCurrent(a: Double) {
+        tvCurr.text = String.format("%.3f A", a)
+        val col = if (a >= 0) "#F59E0B" else "#EF4444"
+        cardCurr.setBackgroundColor(Color.parseColor(col))
+    }
+
+    private fun setSoc(soc: Int) {
+        val clamp = min(100, max(0, soc))
+        tvSoc.text = "$clamp %"
+        socBar.progress = clamp
+        val color = when {
+            clamp >= 80 -> Color.parseColor("#22C55E")
+            clamp >= 30 -> Color.parseColor("#F59E0B")
+            else        -> Color.parseColor("#EF4444")
+        }
+        socBar.progressDrawable.setTint(color)
     }
 
     // ---------- helpers ----------
