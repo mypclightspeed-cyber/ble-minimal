@@ -18,6 +18,11 @@ import androidx.core.content.ContextCompat
 
 class MainActivity : AppCompatActivity() {
 
+    // ------- tweak these two -------
+    private val SCAN_PERIOD_MS = 20_000L                // 20 seconds scan window
+    private val NAME_FILTER = "YOUR_NAME_PART"          // e.g. "ble", "sensor", or exact name (case-insensitive)
+    // --------------------------------
+
     private val PERM_REQUEST = 1001
     private lateinit var adapterLv: ArrayAdapter<String>
     private val devices = LinkedHashMap<String, BluetoothDevice>() // address -> device
@@ -25,13 +30,12 @@ class MainActivity : AppCompatActivity() {
     private var scanner: BluetoothLeScanner? = null
     private var scanning = false
     private val handler = Handler(Looper.getMainLooper())
-    private val SCAN_PERIOD_MS = 10000L
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Minimal UI
-        val btn = Button(this).apply { text = "Start Scan" }
+        // Minimal UI: a Button and a ListView
+        val btn = Button(this).apply { text = "Start Scan (20s)" }
         val list = ListView(this)
         adapterLv = ArrayAdapter(this, android.R.layout.simple_list_item_1, ArrayList<String>())
         list.adapter = adapterLv
@@ -94,7 +98,14 @@ class MainActivity : AppCompatActivity() {
         override fun onScanResult(callbackType: Int, result: ScanResult) {
             val dev = result.device
             val name = dev.name ?: result.scanRecord?.deviceName ?: "Unknown"
-            val entry = "${dev.address} ${name}"
+
+            // ---- name filter (substring, case-insensitive) ----
+            if (NAME_FILTER.isNotEmpty() && !name.contains(NAME_FILTER, ignoreCase = true)) {
+                return
+            }
+            // ---------------------------------------------------
+
+            val entry = "${dev.address}  $name"
             if (!devices.containsKey(dev.address)) {
                 devices[dev.address] = dev
                 adapterLv.add(entry)
@@ -115,13 +126,20 @@ class MainActivity : AppCompatActivity() {
         devices.clear()
         adapterLv.clear()
         scanning = true
-        Toast.makeText(this, "Scanning...", Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, "Scanning for ${SCAN_PERIOD_MS/1000}s...", Toast.LENGTH_SHORT).show()
 
+        // stop after SCAN_PERIOD_MS
         handler.postDelayed({ stopScan() }, SCAN_PERIOD_MS)
 
-        scanner?.startScan(null,
-            ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build(),
-            scanCallback)
+        // simple scan (no filters here; we filter by name inside callback)
+        val settings = ScanSettings.Builder()
+            .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
+            .build()
+        scanner?.startScan(null, settings, scanCallback)
+
+        // If you prefer EXACT name filter at hardware level, replace the line above with:
+        // val filters = listOf(ScanFilter.Builder().setDeviceName("Exact Device Name").build())
+        // scanner?.startScan(filters, settings, scanCallback)
     }
 
     private fun stopScan() {
