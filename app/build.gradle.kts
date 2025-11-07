@@ -4,22 +4,23 @@ plugins {
 }
 
 android {
--    compileSdk = 34
-+    compileSdk = 34
+    namespace = "com.example.blescan"
+    compileSdk = 34
+
     defaultConfig {
--       targetSdk = 34
-+       targetSdk = 34
+        applicationId = "com.example.blescan"
+        minSdk = 21
+        targetSdk = 34
+        versionCode = 1
+        versionName = "1.0"
     }
-}
 
     buildTypes {
         getByName("release") {
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
-        getByName("debug") {
-            // Debuggable by default
-        }
+        getByName("debug") { }
     }
 
     compileOptions {
