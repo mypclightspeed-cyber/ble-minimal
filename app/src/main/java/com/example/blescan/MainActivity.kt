@@ -6,20 +6,24 @@ import android.bluetooth.le.BluetoothLeScanner
 import android.bluetooth.le.ScanCallback
 import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
+import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
-import android.graphics.Color
+import android.graphics.*
+import android.location.LocationManager
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
-import android.view.Gravity
+import android.provider.Settings
+import android.view.View
 import android.widget.*
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import java.util.UUID
-import kotlin.math.max
-import kotlin.math.min
+import kotlin.math.*
 
 class MainActivity : AppCompatActivity() {
 
@@ -27,15 +31,11 @@ class MainActivity : AppCompatActivity() {
     private val SCAN_MS = 20_000L
     private val PERM_REQUEST = 1001
 
-    // -------- Amitis UUIDs & commands (notify/write in FF00 service) --------
-    private val Amitis_SERVICE = UUID.fromString("0000ff00-0000-1000-8000-00805f9b34fb")
-    private val Amitis_READ_CH = UUID.fromString("0000ff01-0000-1000-8000-00805f9b34fb")   // notify
-    private val Amitis_WRITE_CH = UUID.fromString("0000ff02-0000-1000-8000-00805f9b34fb")  // write
-    private val CMD_BASIC_INFO = hex("DD A5 03 00 FF FD 77") // voltage/current/soc
-
-    // GAP generic access → Device Name
-    private val GAP_SERVICE = UUID.fromString("00001800-0000-1000-8000-00805f9b34fb")
-    private val GAP_DEVICE_NAME = UUID.fromString("00002a00-0000-1000-8000-00805f9b34fb")
+    // -------- JBD UUIDs & commands (notify/write in FF00 service) --------
+    private val JBD_SERVICE = UUID.fromString("0000ff00-0000-1000-8000-00805f9b34fb")
+    private val JBD_READ_CH = UUID.fromString("0000ff01-0000-1000-8000-00805f9b34fb")   // notify
+    private val JBD_WRITE_CH = UUID.fromString("0000ff02-0000-1000-8000-00805f9b34fb")  // write
+    private val CMD_BASIC_INFO = hex("DD A5 03 00 FF FD 77") // V/I/SOC etc.
 
     private fun cmdReadRegister(reg: Int): ByteArray {
         val r = reg and 0xFF
@@ -49,23 +49,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     // -------- UI --------
+    private lateinit var bannerWarn: TextView
     private lateinit var btnScan: Button
     private lateinit var list: ListView
-
-    // cards
-    private lateinit var cardName: LinearLayout
-    private lateinit var cardVolt: LinearLayout
-    private lateinit var cardCurr: LinearLayout
-    private lateinit var cardSoc: LinearLayout
-
-    // fields
-    private lateinit var tvName: TextView
-    private lateinit var tvVolt: TextView
-    private lateinit var tvCurr: TextView
-    private lateinit var tvSoc: TextView
-
-    // gauge
-    private lateinit var socBar: ProgressBar
+    private lateinit var socGauge: CircularFuelGauge
 
     private lateinit var adapterLv: ArrayAdapter<String>
     private val rows = mutableListOf<String>()                     // "MAC  Name"
@@ -82,102 +69,53 @@ class MainActivity : AppCompatActivity() {
     private var chNotify: BluetoothGattCharacteristic? = null
     private var chWrite: BluetoothGattCharacteristic? = null
 
-    // Amitis frame reassembly
+    // JBD frame reassembly
     private val rxBuffer = ArrayList<Byte>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // ---------- build UI programmatically ----------
-        // your logo at the top
+        // --- top logo (optional; safe if file missing) ---
         val logo = ImageView(this).apply {
-            setImageResource(R.drawable.logo) // <-- uses res/drawable/logo.png
+            try { setImageResource(R.drawable.logo) } catch (_: Exception) {}
             adjustViewBounds = true
             scaleType = ImageView.ScaleType.FIT_CENTER
             layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                160
-            ).apply {
-                setMargins(16, 16, 16, 8)
-                gravity = Gravity.CENTER_HORIZONTAL
-            }
+                LinearLayout.LayoutParams.MATCH_PARENT, 160
+            ).apply { setMargins(16, 16, 16, 8) }
         }
 
-        btnScan = Button(this).apply {
-            text = "Start Scan (20s)"
+        // warning banner
+        bannerWarn = TextView(this).apply {
+            setPadding(20, 14, 20, 14)
+            textSize = 14f
+            setTextColor(Color.WHITE)
+            setBackgroundColor(Color.parseColor("#DC2626")) // red
+            visibility = View.GONE
         }
+
+        btnScan = Button(this).apply { text = "Start Scan (20s)" }
         list = ListView(this)
 
-        fun makeCard(title: String, bgHex: String): Pair<LinearLayout, TextView> {
-            val bgColor = Color.parseColor(bgHex)
-            val outer = LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-                setPadding(24, 20, 24, 20)
-                setBackgroundColor(bgColor)
-                val lp = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT
-                )
-                lp.setMargins(16, 12, 16, 12)
-                layoutParams = lp
-                elevation = 6f
-            }
-            val label = TextView(this).apply {
-                text = title
-                setTextColor(Color.WHITE)
-                textSize = 12f
-            }
-            val value = TextView(this).apply {
-                text = "-"
-                setTextColor(Color.WHITE)
-                textSize = 20f
-                setPadding(0, 6, 0, 0)
-            }
-            outer.addView(label)
-            outer.addView(value)
-            return outer to value
-        }
-
-        val (cardNameView, tvNameView) = makeCard("Name", "#3B82F6")     // blue
-        val (cardVoltView, tvVoltView) = makeCard("Voltage (V)", "#10B981") // green
-        val (cardCurrView, tvCurrView) = makeCard("Current (A)", "#F59E0B") // amber
-        val (cardSocView,  tvSocView)  = makeCard("SOC (%)",    "#8B5CF6") // violet
-
-        cardName = cardNameView; tvName = tvNameView
-        cardVolt = cardVoltView; tvVolt = tvVoltView
-        cardCurr = cardCurrView; tvCurr = tvCurrView
-        cardSoc  = cardSocView;  tvSoc  = tvSocView
-
-        // SOC gauge
-        socBar = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
-            max = 100
-            progress = 0
-            isIndeterminate = false
-            val lp = LinearLayout.LayoutParams(
+        socGauge = CircularFuelGauge(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
-                22
-            )
-            lp.setMargins(0, 12, 0, 0)
-            layoutParams = lp
-            progressDrawable = resources.getDrawable(android.R.drawable.progress_horizontal, theme)
+                320
+            ).apply { setMargins(16, 12, 16, 16) }
+            setPercent(0)
+            setLabel("SOC")
         }
-        cardSoc.addView(socBar)
 
-        // main container
-        val top = LinearLayout(this).apply {
+        val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(12, 12, 12, 12)
             addView(logo)
+            addView(bannerWarn)
             addView(btnScan)
             addView(list, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
-            addView(cardName)
-            addView(cardVolt)
-            addView(cardCurr)
-            addView(cardSoc)
+            addView(socGauge)
         }
-
-        setContentView(top)
-        // -----------------------------------------------
+        setContentView(root)
 
         bluetoothAdapter = (getSystemService(BLUETOOTH_SERVICE) as BluetoothManager).adapter
         scanner = bluetoothAdapter?.bluetoothLeScanner
@@ -185,14 +123,85 @@ class MainActivity : AppCompatActivity() {
         adapterLv = ArrayAdapter(this, android.R.layout.simple_list_item_1, ArrayList())
         list.adapter = adapterLv
 
-        btnScan.setOnClickListener { if (checkAndRequestPermissions()) startScan() }
+        btnScan.setOnClickListener {
+            if (!ensurePrereqs()) return@setOnClickListener
+            if (checkAndRequestPermissions()) startScan()
+        }
 
         list.setOnItemClickListener { _, _, pos, _ ->
             val entry = adapterLv.getItem(pos) ?: return@setOnItemClickListener
             val mac = entry.substringBefore("  ")
             val dev = devices[mac] ?: return@setOnItemClickListener
-            connectTo(dev, advertisedName[mac] ?: "Unknown")
+            connectTo(dev)
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // update warning banner whenever user returns from Settings
+        updateWarningBanner()
+    }
+
+    // ---------- prerequisites: BT + Location ----------
+    private fun ensurePrereqs(): Boolean {
+        var ok = true
+        val btOn = bluetoothAdapter?.isEnabled == true
+        val locOn = isLocationEnabled(this)
+
+        if (!btOn) {
+            ok = false
+            AlertDialog.Builder(this)
+                .setTitle("Bluetooth is OFF")
+                .setMessage("Please enable Bluetooth to scan for BLE devices.")
+                .setPositiveButton("Open Bluetooth Settings") { _, _ ->
+                    startActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS))
+                }
+                .setNegativeButton("Cancel", null)
+                .show()
+        }
+        if (!locOn) {
+            ok = false
+            AlertDialog.Builder(this)
+                .setTitle("Location is OFF")
+                .setMessage("Location must be ON for BLE scanning on many Android versions.")
+                .setPositiveButton("Open Location Settings") { _, _ ->
+                    startActivity(Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS))
+                }
+                .setNegativeButton("Cancel", null)
+                .show()
+        }
+        updateWarningBanner()
+        return ok
+    }
+
+    private fun updateWarningBanner() {
+        val btOn = bluetoothAdapter?.isEnabled == true
+        val locOn = isLocationEnabled(this)
+        when {
+            !btOn && !locOn -> {
+                bannerWarn.text = "Bluetooth and Location are OFF"
+                bannerWarn.visibility = View.VISIBLE
+            }
+            !btOn -> {
+                bannerWarn.text = "Bluetooth is OFF"
+                bannerWarn.visibility = View.VISIBLE
+            }
+            !locOn -> {
+                bannerWarn.text = "Location is OFF"
+                bannerWarn.visibility = View.VISIBLE
+            }
+            else -> {
+                bannerWarn.visibility = View.GONE
+            }
+        }
+    }
+
+    private fun isLocationEnabled(ctx: Context): Boolean {
+        return try {
+            val lm = ctx.getSystemService(Context.LOCATION_SERVICE) as LocationManager
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) lm.isLocationEnabled
+            else lm.isProviderEnabled(LocationManager.GPS_PROVIDER) || lm.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
+        } catch (_: Exception) { false }
     }
 
     // ---------- permissions ----------
@@ -211,7 +220,7 @@ class MainActivity : AppCompatActivity() {
     override fun onRequestPermissionsResult(rc: Int, p: Array<out String>, r: IntArray) {
         super.onRequestPermissionsResult(rc, p, r)
         if (rc == PERM_REQUEST && r.all { it == PackageManager.PERMISSION_GRANTED }) startScan()
-        else Toast.makeText(this, "Permission required", Toast.LENGTH_SHORT).show()
+        else toast("Permission required")
     }
 
     // ---------- scan ----------
@@ -234,11 +243,11 @@ class MainActivity : AppCompatActivity() {
     private fun startScan() {
         if (scanning) return
         val ad = bluetoothAdapter
-        if (ad == null || !ad.isEnabled) { toast("Turn ON Bluetooth"); return }
+        if (ad == null || !ad.isEnabled) { toast("Turn ON Bluetooth"); updateWarningBanner(); return }
 
         // reset UI
         devices.clear(); rows.clear(); adapterLv.clear(); advertisedName.clear()
-        setName("-"); setVoltage(0.0); setCurrent(0.0); setSoc(0)
+        socGauge.setPercent(0)
 
         scanning = true
         toast("Scanning for ${SCAN_MS/1000}s…")
@@ -258,7 +267,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     // ---------- connect / services ----------
-    private fun connectTo(device: BluetoothDevice, nameFromScan: String) {
+    private fun connectTo(device: BluetoothDevice) {
         stopScan()
         toast("Connecting to ${device.address}…")
         gatt?.close()
@@ -266,9 +275,6 @@ class MainActivity : AppCompatActivity() {
             device.connectGatt(this, false, gattCb, BluetoothDevice.TRANSPORT_LE)
         else
             device.connectGatt(this, false, gattCb)
-
-        // fallback show
-        setName(nameFromScan)
     }
 
     private val gattCb = object : BluetoothGattCallback() {
@@ -283,23 +289,13 @@ class MainActivity : AppCompatActivity() {
         }
 
         override fun onServicesDiscovered(g: BluetoothGatt, status: Int) {
-            // GAP device name
-            g.getService(GAP_SERVICE)?.getCharacteristic(GAP_DEVICE_NAME)?.let { gapNameCh ->
-                if ((gapNameCh.properties and BluetoothGattCharacteristic.PROPERTY_READ) != 0) {
-                    g.readCharacteristic(gapNameCh)
-                }
-            }
-
-            // Amitis service
-            val svc = g.getService(Amitis_SERVICE)
-            chNotify = svc?.getCharacteristic(Amitis_READ_CH)
-            chWrite  = svc?.getCharacteristic(Amitis_WRITE_CH)
+            val svc = g.getService(JBD_SERVICE)
+            chNotify = svc?.getCharacteristic(JBD_READ_CH)
+            chWrite  = svc?.getCharacteristic(JBD_WRITE_CH)
             runOnUiThread {
-                if (svc == null || chNotify == null || chWrite == null) {
-                    toast("Amitis FF00/FF01/FF02 not found")
-                } else toast("Amitis BMS service ready")
+                if (svc == null || chNotify == null || chWrite == null) toast("JBD FF00/FF01/FF02 not found")
+                else toast("JBD service ready")
             }
-
             // enable notifications
             chNotify?.let { notifyCh ->
                 g.setCharacteristicNotification(notifyCh, true)
@@ -309,33 +305,26 @@ class MainActivity : AppCompatActivity() {
                     g.writeDescriptor(cccd)
                 }
             }
-
-            // Ask Amitis: basic info + EEPROM name
+            // request basic info (for SOC)
             handler.postDelayed({
                 chWrite?.let { w ->
                     w.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
-                    w.value = CMD_BASIC_INFO; g.writeCharacteristic(w)
-                    w.value = cmdReadRegister(0xA1); g.writeCharacteristic(w)
+                    w.value = CMD_BASIC_INFO
+                    g.writeCharacteristic(w)
+                    // (optional) also request device name EEPROM 0xA1; not shown, but harmless
+                    w.value = cmdReadRegister(0xA1)
+                    g.writeCharacteristic(w)
                 }
             }, 300)
         }
 
-        override fun onCharacteristicRead(g: BluetoothGatt, ch: BluetoothGattCharacteristic, status: Int) {
-            if (status == BluetoothGatt.GATT_SUCCESS && ch.uuid == GAP_DEVICE_NAME) {
-                val s = try { String(ch.value ?: byteArrayOf(), Charsets.UTF_8).trim() } catch (_: Exception) { "" }
-                if (s.isNotEmpty()) runOnUiThread { setName(s) }
-            }
-        }
-
         override fun onCharacteristicChanged(g: BluetoothGatt, characteristic: BluetoothGattCharacteristic) {
-            if (characteristic.uuid == Amitis_READ_CH) {
-                onAmitisBytes(characteristic.value ?: return)
-            }
+            if (characteristic.uuid == JBD_READ_CH) onJbdBytes(characteristic.value ?: return)
         }
     }
 
-    // ---------- Amitis frame handling ----------
-    private fun onAmitisBytes(chunk: ByteArray) {
+    // ---------- JBD frame handling ----------
+    private fun onJbdBytes(chunk: ByteArray) {
         synchronized(rxBuffer) {
             chunk.forEach { rxBuffer.add(it) }
             while (true) {
@@ -362,10 +351,7 @@ class MainActivity : AppCompatActivity() {
                 val got = (chkHi shl 8) or chkLo
                 if (expected != got || status != 0) continue
 
-                when (reg) {
-                    0x03 -> handleBasicInfo(payload)
-                    0xA1 -> handleDeviceName(payload)
-                }
+                if (reg == 0x03) handleBasicInfo(payload) // we only care SOC now
             }
         }
     }
@@ -373,58 +359,8 @@ class MainActivity : AppCompatActivity() {
     // payload layout: voltage(2) current(2s) ... soc(1) at offset 19 in payload
     private fun handleBasicInfo(p: ByteArray) {
         if (p.size < 24) return
-        val vRaw = ((p[0].toInt() and 0xFF) shl 8) or (p[1].toInt() and 0xFF)
-        val iRawU = ((p[2].toInt() and 0xFF) shl 8) or (p[3].toInt() and 0xFF)
-        var iRaw = iRawU
-        if ((iRaw and 0x8000) != 0) iRaw = -((iRaw xor 0xFFFF) + 1)
-        val voltage = vRaw / 100.0
-        val current = iRaw / 100.0
         val soc = p[19].toInt() and 0xFF
-        runOnUiThread {
-            setVoltage(voltage)
-            setCurrent(current)
-            setSoc(soc)
-        }
-    }
-
-    private fun handleDeviceName(p0: ByteArray) {
-        var p = p0
-        if (p.isNotEmpty() && (p[0].toInt() and 0xFF) == (p.size - 1)) p = p.copyOfRange(1, p.size)
-        val name = try { String(p.dropLastWhile { it == 0.toByte() }.toByteArray(), Charsets.US_ASCII).trim() } catch (_: Exception) { "" }
-        if (name.isNotEmpty()) runOnUiThread { setName(name) }
-    }
-
-    // ---------- pretty UI setters ----------
-    private fun setName(s: String) {
-        tvName.text = s
-    }
-
-    private fun setVoltage(v: Double) {
-        tvVolt.text = String.format("%.3f V", v)
-        val shade = when {
-            v >= 54 -> "#059669"
-            v >= 48 -> "#10B981"
-            else    -> "#34D399"
-        }
-        cardVolt.setBackgroundColor(Color.parseColor(shade))
-    }
-
-    private fun setCurrent(a: Double) {
-        tvCurr.text = String.format("%.3f A", a)
-        val col = if (a >= 0) "#F59E0B" else "#EF4444"
-        cardCurr.setBackgroundColor(Color.parseColor(col))
-    }
-
-    private fun setSoc(soc: Int) {
-        val clamp = min(100, max(0, soc))
-        tvSoc.text = "$clamp %"
-        socBar.progress = clamp
-        val color = when {
-            clamp >= 80 -> Color.parseColor("#22C55E")
-            clamp >= 30 -> Color.parseColor("#F59E0B")
-            else        -> Color.parseColor("#EF4444")
-        }
-        socBar.progressDrawable.setTint(color)
+        runOnUiThread { socGauge.setPercent(soc.coerceIn(0, 100)) }
     }
 
     // ---------- helpers ----------
@@ -445,5 +381,95 @@ class MainActivity : AppCompatActivity() {
         stopScan()
         gatt?.close()
         super.onDestroy()
+    }
+
+    // ======== Custom circular fuel gauge ========
+    class CircularFuelGauge(context: Context) : View(context) {
+        private var pct = 0
+        private var label = "SOC"
+
+        private val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#E5E7EB") // gray-200
+            style = Paint.Style.STROKE
+            strokeWidth = 22f
+            strokeCap = Paint.Cap.ROUND
+        }
+        private val progPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#22C55E") // green
+            style = Paint.Style.STROKE
+            strokeWidth = 22f
+            strokeCap = Paint.Cap.ROUND
+        }
+        private val tickPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#9CA3AF") // gray-400
+            style = Paint.Style.STROKE
+            strokeWidth = 3f
+        }
+        private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.BLACK
+            textAlign = Paint.Align.CENTER
+        }
+
+        fun setPercent(v: Int) {
+            pct = v.coerceIn(0, 100)
+            // color by level
+            progPaint.color = when {
+                pct >= 80 -> Color.parseColor("#22C55E") // green
+                pct >= 30 -> Color.parseColor("#F59E0B") // amber
+                else      -> Color.parseColor("#EF4444") // red
+            }
+            invalidate()
+        }
+        fun setLabel(s: String) { label = s; invalidate() }
+
+        override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+            val w = MeasureSpec.getSize(widthMeasureSpec)
+            // Height ~ half circle + padding for text
+            val h = max( (w * 0.6f).roundToInt(), 220 )
+            setMeasuredDimension(w, h)
+        }
+
+        override fun onDraw(c: Canvas) {
+            super.onDraw(c)
+            val pad = 32f
+            val w = width.toFloat()
+            val h = height.toFloat()
+            val size = min(w, h * 1.8f) - pad*2
+            val left = (w - size) / 2f
+            val top  = pad
+            val rect = RectF(left, top, left + size, top + size)
+
+            // angles for semicircle (car fuel gauge style): -180..0 degrees
+            val startAngle = 180f
+            val sweepTotal = 180f
+            // background arc
+            c.drawArc(rect, startAngle, sweepTotal, false, bgPaint)
+            // ticks every 10%
+            drawTicks(c, rect, startAngle, sweepTotal)
+            // progress arc
+            val sweep = sweepTotal * (pct / 100f)
+            c.drawArc(rect, startAngle, sweep, false, progPaint)
+
+            // center text
+            textPaint.textSize = 44f
+            c.drawText("$pct%", w/2f, rect.centerY() + 22f, textPaint)
+            textPaint.textSize = 18f
+            c.drawText(label, w/2f, rect.centerY() + 54f, textPaint)
+        }
+
+        private fun drawTicks(c: Canvas, rect: RectF, start: Float, sweep: Float) {
+            val cx = rect.centerX()
+            val cy = rect.centerY()
+            val rOuter = rect.width() / 2f
+            val rInner = rOuter - 18f
+            for (i in 0..10) {
+                val a = Math.toRadians((start + sweep * (i/10f)).toDouble())
+                val sx = (cx + rInner * cos(a)).toFloat()
+                val sy = (cy + rInner * sin(a)).toFloat()
+                val ex = (cx + rOuter * cos(a)).toFloat()
+                val ey = (cy + rOuter * sin(a)).toFloat()
+                c.drawLine(sx, sy, ex, ey, tickPaint)
+            }
+        }
     }
 }
