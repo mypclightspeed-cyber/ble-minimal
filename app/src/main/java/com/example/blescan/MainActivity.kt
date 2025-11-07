@@ -27,10 +27,10 @@ class MainActivity : AppCompatActivity() {
     private val SCAN_MS = 20_000L
     private val PERM_REQUEST = 1001
 
-    // -------- JBD UUIDs & commands (notify/write in FF00 service) --------
-    private val JBD_SERVICE = UUID.fromString("0000ff00-0000-1000-8000-00805f9b34fb")
-    private val JBD_READ_CH = UUID.fromString("0000ff01-0000-1000-8000-00805f9b34fb")   // notify
-    private val JBD_WRITE_CH = UUID.fromString("0000ff02-0000-1000-8000-00805f9b34fb")  // write
+    // -------- Amitis UUIDs & commands (notify/write in FF00 service) --------
+    private val Amitis_SERVICE = UUID.fromString("0000ff00-0000-1000-8000-00805f9b34fb")
+    private val Amitis_READ_CH = UUID.fromString("0000ff01-0000-1000-8000-00805f9b34fb")   // notify
+    private val Amitis_WRITE_CH = UUID.fromString("0000ff02-0000-1000-8000-00805f9b34fb")  // write
     private val CMD_BASIC_INFO = hex("DD A5 03 00 FF FD 77") // voltage/current/soc
 
     // GAP generic access → Device Name
@@ -82,7 +82,7 @@ class MainActivity : AppCompatActivity() {
     private var chNotify: BluetoothGattCharacteristic? = null
     private var chWrite: BluetoothGattCharacteristic? = null
 
-    // JBD frame reassembly
+    // Amitis frame reassembly
     private val rxBuffer = ArrayList<Byte>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -290,14 +290,14 @@ class MainActivity : AppCompatActivity() {
                 }
             }
 
-            // JBD service
-            val svc = g.getService(JBD_SERVICE)
-            chNotify = svc?.getCharacteristic(JBD_READ_CH)
-            chWrite  = svc?.getCharacteristic(JBD_WRITE_CH)
+            // Amitis service
+            val svc = g.getService(Amitis_SERVICE)
+            chNotify = svc?.getCharacteristic(Amitis_READ_CH)
+            chWrite  = svc?.getCharacteristic(Amitis_WRITE_CH)
             runOnUiThread {
                 if (svc == null || chNotify == null || chWrite == null) {
-                    toast("JBD FF00/FF01/FF02 not found")
-                } else toast("JBD service ready")
+                    toast("Amitis FF00/FF01/FF02 not found")
+                } else toast("Amitis BMS service ready")
             }
 
             // enable notifications
@@ -310,7 +310,7 @@ class MainActivity : AppCompatActivity() {
                 }
             }
 
-            // Ask JBD: basic info + EEPROM name
+            // Ask Amitis: basic info + EEPROM name
             handler.postDelayed({
                 chWrite?.let { w ->
                     w.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
@@ -328,14 +328,14 @@ class MainActivity : AppCompatActivity() {
         }
 
         override fun onCharacteristicChanged(g: BluetoothGatt, characteristic: BluetoothGattCharacteristic) {
-            if (characteristic.uuid == JBD_READ_CH) {
-                onJbdBytes(characteristic.value ?: return)
+            if (characteristic.uuid == Amitis_READ_CH) {
+                onAmitisBytes(characteristic.value ?: return)
             }
         }
     }
 
-    // ---------- JBD frame handling ----------
-    private fun onJbdBytes(chunk: ByteArray) {
+    // ---------- Amitis frame handling ----------
+    private fun onAmitisBytes(chunk: ByteArray) {
         synchronized(rxBuffer) {
             chunk.forEach { rxBuffer.add(it) }
             while (true) {
