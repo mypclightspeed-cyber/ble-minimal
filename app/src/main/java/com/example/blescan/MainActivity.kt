@@ -4,6 +4,7 @@ import android.Manifest
 import android.bluetooth.*
 import android.bluetooth.le.*
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -12,37 +13,73 @@ import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.ListView
 import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import java.util.UUID
+import kotlin.math.min
+import android.content.Intent
 
 class MainActivity : AppCompatActivity() {
 
-    // ------- tweak these two -------
-    private val SCAN_PERIOD_MS = 20_000L                // 20 seconds scan window
-    private val NAME_FILTER = "YOUR_NAME_PART"          // e.g. "ble", "sensor", or exact name (case-insensitive)
-    // --------------------------------
+    // ---- tweak these ----
+    private val SCAN_PERIOD_MS = 20_000L
+    private val NAME_FILTER = "YOUR_NAME_PART" // case-insensitive substring
+    private val SERVICE_UUID = UUID.fromString("0000180F-0000-1000-8000-00805F9B34FB") // TODO: replace
+    private val CHARACTERISTIC_UUID = UUID.fromString("00002A19-0000-1000-8000-00805F9B34FB") // TODO: replace (write)
+    private val CHUNK_SIZE = 20 // typical max. Change to device MTU if known.
+    // ---------------------
 
     private val PERM_REQUEST = 1001
     private lateinit var adapterLv: ArrayAdapter<String>
-    private val devices = LinkedHashMap<String, BluetoothDevice>() // address -> device
+    private val devices = LinkedHashMap<String, BluetoothDevice>() // addr -> device
     private var bluetoothAdapter: BluetoothAdapter? = null
     private var scanner: BluetoothLeScanner? = null
     private var scanning = false
     private val handler = Handler(Looper.getMainLooper())
 
+    // BLE connection state
+    private var currentGatt: BluetoothGatt? = null
+    private var writeCharacteristic: BluetoothGattCharacteristic? = null
+
+    // selected file
+    private var selectedFileBytes: ByteArray? = null
+
+    // SAF file picker
+    private val pickFile = registerForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        if (uri == null) {
+            Toast.makeText(this, "No file selected", Toast.LENGTH_SHORT).show()
+            return@registerForActivityResult
+        }
+        contentResolver.takePersistableUriPermission(
+            uri,
+            Intent.FLAG_GRANT_READ_URI_PERMISSION
+        )
+        readFileBytes(uri)?.let { data ->
+            selectedFileBytes = data
+            Toast.makeText(this, "File loaded: ${data.size} bytes", Toast.LENGTH_SHORT).show()
+            trySendFileIfReady()
+        } ?: Toast.makeText(this, "Failed to read file", Toast.LENGTH_SHORT).show()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Minimal UI: a Button and a ListView
-        val btn = Button(this).apply { text = "Start Scan (20s)" }
+        // UI: Scan, Select File, List
+        val btnScan = Button(this).apply { text = "Start Scan (20s)" }
+        val btnPick = Button(this).apply { text = "Select File" }
         val list = ListView(this)
-        adapterLv = ArrayAdapter(this, android.R.layout.simple_list_item_1, ArrayList<String>())
+
+        adapterLv = ArrayAdapter(this, android.R.layout.simple_list_item_1, ArrayList())
         list.adapter = adapterLv
 
         val layout = android.widget.LinearLayout(this).apply {
             orientation = android.widget.LinearLayout.VERTICAL
-            addView(btn)
+            addView(btnScan)
+            addView(btnPick)
             addView(list)
         }
         setContentView(layout)
@@ -50,8 +87,13 @@ class MainActivity : AppCompatActivity() {
         bluetoothAdapter = (getSystemService(BLUETOOTH_SERVICE) as BluetoothManager).adapter
         scanner = bluetoothAdapter?.bluetoothLeScanner
 
-        btn.setOnClickListener {
+        btnScan.setOnClickListener {
             if (checkAndRequestPermissions()) startScan()
+        }
+
+        btnPick.setOnClickListener {
+            // Storage Access Framework — no storage permission needed
+            pickFile.launch(arrayOf("*/*")) // any file; narrow as needed
         }
 
         list.setOnItemClickListener { _, _, pos, _ ->
@@ -65,16 +107,13 @@ class MainActivity : AppCompatActivity() {
     private fun checkAndRequestPermissions(): Boolean {
         val perms = mutableListOf<String>()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_SCAN) != PackageManager.PERMISSION_GRANTED) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_SCAN) != PackageManager.PERMISSION_GRANTED)
                 perms.add(Manifest.permission.BLUETOOTH_SCAN)
-            }
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED)
                 perms.add(Manifest.permission.BLUETOOTH_CONNECT)
-            }
         } else {
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED)
                 perms.add(Manifest.permission.ACCESS_FINE_LOCATION)
-            }
         }
         return if (perms.isEmpty()) true
         else {
@@ -86,11 +125,8 @@ class MainActivity : AppCompatActivity() {
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == PERM_REQUEST) {
-            if (grantResults.all { it == PackageManager.PERMISSION_GRANTED }) {
-                startScan()
-            } else {
-                Toast.makeText(this, "Permission required to scan/connect Bluetooth", Toast.LENGTH_SHORT).show()
-            }
+            if (grantResults.all { it == PackageManager.PERMISSION_GRANTED }) startScan()
+            else Toast.makeText(this, "Permission required", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -99,11 +135,7 @@ class MainActivity : AppCompatActivity() {
             val dev = result.device
             val name = dev.name ?: result.scanRecord?.deviceName ?: "Unknown"
 
-            // ---- name filter (substring, case-insensitive) ----
-            if (NAME_FILTER.isNotEmpty() && !name.contains(NAME_FILTER, ignoreCase = true)) {
-                return
-            }
-            // ---------------------------------------------------
+            if (NAME_FILTER.isNotEmpty() && !name.contains(NAME_FILTER, ignoreCase = true)) return
 
             val entry = "${dev.address}  $name"
             if (!devices.containsKey(dev.address)) {
@@ -126,20 +158,12 @@ class MainActivity : AppCompatActivity() {
         devices.clear()
         adapterLv.clear()
         scanning = true
-        Toast.makeText(this, "Scanning for ${SCAN_PERIOD_MS/1000}s...", Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, "Scanning for ${SCAN_PERIOD_MS / 1000}s...", Toast.LENGTH_SHORT).show()
 
-        // stop after SCAN_PERIOD_MS
         handler.postDelayed({ stopScan() }, SCAN_PERIOD_MS)
 
-        // simple scan (no filters here; we filter by name inside callback)
-        val settings = ScanSettings.Builder()
-            .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
-            .build()
+        val settings = ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build()
         scanner?.startScan(null, settings, scanCallback)
-
-        // If you prefer EXACT name filter at hardware level, replace the line above with:
-        // val filters = listOf(ScanFilter.Builder().setDeviceName("Exact Device Name").build())
-        // scanner?.startScan(filters, settings, scanCallback)
     }
 
     private fun stopScan() {
@@ -151,7 +175,8 @@ class MainActivity : AppCompatActivity() {
 
     private fun connectToDevice(device: BluetoothDevice) {
         Toast.makeText(this, "Connecting to ${device.address}", Toast.LENGTH_SHORT).show()
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+        currentGatt?.close()
+        currentGatt = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             device.connectGatt(this, false, gattCallback, BluetoothDevice.TRANSPORT_LE)
         } else {
             device.connectGatt(this, false, gattCallback)
@@ -162,23 +187,79 @@ class MainActivity : AppCompatActivity() {
         override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
             runOnUiThread {
                 if (newState == BluetoothProfile.STATE_CONNECTED) {
-                    Toast.makeText(this@MainActivity, "Connected to ${gatt.device.address}", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this@MainActivity, "Connected: ${gatt.device.address}", Toast.LENGTH_SHORT).show()
                     gatt.discoverServices()
                 } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
-                    Toast.makeText(this@MainActivity, "Disconnected from ${gatt.device.address}", Toast.LENGTH_SHORT).show()
-                    gatt.close()
+                    Toast.makeText(this@MainActivity, "Disconnected", Toast.LENGTH_SHORT).show()
+                    writeCharacteristic = null
+                    currentGatt?.close()
+                    currentGatt = null
                 }
             }
         }
+
         override fun onServicesDiscovered(gatt: BluetoothGatt, status: Int) {
+            val svc = gatt.getService(SERVICE_UUID)
+            val ch = svc?.getCharacteristic(CHARACTERISTIC_UUID)
+            writeCharacteristic = ch
             runOnUiThread {
-                Toast.makeText(this@MainActivity, "Services discovered: ${gatt.services.size}", Toast.LENGTH_SHORT).show()
+                if (ch != null) {
+                    Toast.makeText(this@MainActivity, "Write characteristic ready", Toast.LENGTH_SHORT).show()
+                    trySendFileIfReady()
+                } else {
+                    Toast.makeText(this@MainActivity, "Characteristic not found. Check UUIDs.", Toast.LENGTH_LONG).show()
+                }
             }
+        }
+
+        override fun onCharacteristicWrite(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic, status: Int) {
+            // You can add progress feedback here if desired
         }
     }
 
+    private fun trySendFileIfReady() {
+        val gatt = currentGatt ?: return
+        val ch = writeCharacteristic ?: return
+        val data = selectedFileBytes ?: return
+
+        Toast.makeText(this, "Sending ${data.size} bytes...", Toast.LENGTH_SHORT).show()
+        sendInChunks(gatt, ch, data)
+    }
+
+    private fun sendInChunks(gatt: BluetoothGatt, ch: BluetoothGattCharacteristic, data: ByteArray) {
+        var offset = 0
+        while (offset < data.size) {
+            val end = min(offset + CHUNK_SIZE, data.size)
+            val chunk = data.copyOfRange(offset, end)
+            ch.value = chunk
+
+            // Prefer WRITE_TYPE_NO_RESPONSE if supported by your device for speed
+            ch.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
+
+            val ok = gatt.writeCharacteristic(ch)
+            if (!ok) {
+                runOnUiThread {
+                    Toast.makeText(this, "Write failed at $offset/${data.size}", Toast.LENGTH_SHORT).show()
+                }
+                return
+            }
+            offset = end
+
+            // Throttle a little to avoid overruns; tune for your device
+            try { Thread.sleep(10) } catch (_: InterruptedException) {}
+        }
+        runOnUiThread {
+            Toast.makeText(this, "File sent (${data.size} bytes)", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun readFileBytes(uri: Uri): ByteArray? = try {
+        contentResolver.openInputStream(uri)?.use { it.readBytes() }
+    } catch (e: Exception) { null }
+
     override fun onDestroy() {
         stopScan()
+        currentGatt?.close()
         super.onDestroy()
     }
 }
