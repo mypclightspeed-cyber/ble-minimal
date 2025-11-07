@@ -16,13 +16,20 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      # Install Android SDK + cmdline-tools (gives you `sdkmanager`)
+      # Android SDK (gives you sdkmanager)
       - uses: android-actions/setup-android@v3
 
-      - name: Install SDK packages
+      - name: Accept licenses & install SDK
         run: |
           yes | sdkmanager --licenses
           sdkmanager --install "platform-tools" "platforms;android-33" "build-tools;33.0.2"
+
+      # Generate Gradle wrapper (since gradle-wrapper.jar is missing)
+      - name: Generate Gradle wrapper
+        uses: gradle/gradle-build-action@v2
+        with:
+          gradle-version: 8.7
+          arguments: wrapper
 
       - name: Make gradlew executable
         run: chmod +x ./gradlew
