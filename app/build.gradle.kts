@@ -4,10 +4,10 @@ plugins {
 }
 
 android {
--    compileSdk = 33
+-    compileSdk = 34
 +    compileSdk = 34
     defaultConfig {
--       targetSdk = 33
+-       targetSdk = 34
 +       targetSdk = 34
     }
 }
