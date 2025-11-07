@@ -29,11 +29,10 @@ class MainActivity : AppCompatActivity() {
     private val PERM_REQUEST = 1001
 
     // --- Amitis BMS (FF00) ---
-    private val Amitis_SERVICE = uuid("0000ff00")
-    private val Amitis_READ_CH = uuid("0000ff01")   // notify
-    private val Amitis_WRITE_CH = uuid("0000ff02")  // write
+    private val AMITIS_SERVICE = uuid("0000ff00")
+    private val AMITIS_READ_CH = uuid("0000ff01")   // notify
+    private val AMITIS_WRITE_CH = uuid("0000ff02")  // write
     private val CMD_BASIC_INFO = hex("DD A5 03 00 FF FD 77")
-
     private fun cmdReadRegister(reg: Int): ByteArray {
         val r = reg and 0xFF
         val chk = (0x10000 - (r + 0)) and 0xFFFF
@@ -68,10 +67,25 @@ class MainActivity : AppCompatActivity() {
     private var chWrite: BluetoothGattCharacteristic? = null
     private val rxBuffer = ArrayList<Byte>()
 
+    // periodic polling while connected
+    private val pollIntervalMs = 1000L
+    private val pollTask = object : Runnable {
+        override fun run() {
+            chWrite?.let { w ->
+                gatt?.let { g ->
+                    w.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
+                    w.value = CMD_BASIC_INFO
+                    g.writeCharacteristic(w)
+                }
+            }
+            handler.postDelayed(this, pollIntervalMs)
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // top logo (optional)
+        // optional logo
         val logo = ImageView(this).apply {
             try { setImageResource(R.drawable.logo) } catch (_: Exception) {}
             adjustViewBounds = true
@@ -92,47 +106,53 @@ class MainActivity : AppCompatActivity() {
         btnScan = Button(this).apply { text = "Start Scan (20s)" }
         list = ListView(this)
 
-        // Stylish semicircle fuel gauge (SOC only)
+        // Stylish semicircle SOC gauge (red pointer, calibrated 0..100%)
         gauge = FancyFuelGauge(this).apply {
             layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, 330
+                LinearLayout.LayoutParams.MATCH_PARENT, 340
             ).apply { setMargins(16, 10, 16, 6) }
             setLabel("SOC")
             setPercent(0)
         }
 
-        fun bigLabel(title: String): TextView = TextView(this).apply {
-            text = title
-            textSize = 18f
-            setTextColor(Color.parseColor("#374151"))
+        // colorful parameter boxes
+        fun makeCard(title: String, colorHex: String): Pair<LinearLayout, Pair<TextView, TextView>> {
+            val card = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(24, 18, 24, 18)
+                setBackgroundColor(Color.parseColor(colorHex))
+                val lp = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+                )
+                lp.setMargins(16, 10, 16, 10)
+                layoutParams = lp
+                elevation = 6f
+            }
+            val titleTv = TextView(this).apply {
+                text = title
+                textSize = 16f      // titles bold, one step smaller than before
+                setTypeface(typeface, Typeface.BOLD)
+                setTextColor(Color.WHITE)
+            }
+            val valueTv = TextView(this).apply {
+                text = "-"
+                textSize = 28f      // values slightly smaller; NOT bold
+                setTextColor(Color.WHITE)
+            }
+            card.addView(titleTv); card.addView(valueTv)
+            return card to (titleTv to valueTv)
         }
-        fun bigValue(): TextView = TextView(this).apply {
+
+        val (cardVolt, pairVolt) = makeCard("Voltage (V)", "#10B981") // green
+        val (cardCurr, pairCurr) = makeCard("Current (A)", "#F59E0B") // amber
+        val (cardName, pairName) = makeCard("Device",      "#3B82F6") // blue
+        tvVolt = pairVolt.second
+        tvCurr = pairCurr.second
+        tvName = pairName.second
+        tvSOC  = TextView(this).apply {
             text = "-"
-            textSize = 36f   // 2× bigger
-            setTypeface(typeface, Typeface.BOLD) // bold
+            textSize = 28f
             setTextColor(Color.parseColor("#111827"))
-        }
-
-        val lblSOC  = bigLabel("State of Charge")
-        tvSOC  = bigValue()
-        val lblVolt = bigLabel("Voltage")
-        tvVolt = bigValue()
-        val lblCurr = bigLabel("Current")
-        tvCurr = bigValue()
-
-        tvName = TextView(this).apply {
-            text = ""               // will be cleared on select
-            textSize = 14f
-            setTextColor(Color.parseColor("#6B7280"))
-        }
-
-        val valuesBox = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(16, 6, 16, 16)
-            addView(lblSOC);  addView(tvSOC)
-            addView(lblVolt); addView(tvVolt)
-            addView(lblCurr); addView(tvCurr)
-            addView(tvName)
         }
 
         val root = LinearLayout(this).apply {
@@ -144,7 +164,9 @@ class MainActivity : AppCompatActivity() {
             addView(list, LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
             addView(gauge)          // gauge ABOVE parameters
-            addView(valuesBox)
+            addView(cardVolt)
+            addView(cardCurr)
+            addView(cardName)
         }
         setContentView(root)
 
@@ -163,8 +185,7 @@ class MainActivity : AppCompatActivity() {
             val entry = adapterLv.getItem(pos) ?: return@setOnItemClickListener
             val mac = entry.substringBefore("  ")
             val dev = devices[mac] ?: return@setOnItemClickListener
-            // clear name immediately when one is selected
-            tvName.text = ""
+            tvName.text = ""           // clear device name when selecting
             connectTo(dev)
         }
     }
@@ -261,7 +282,7 @@ class MainActivity : AppCompatActivity() {
         val ad = bluetoothAdapter
         if (ad == null || !ad.isEnabled) { toast("Turn ON Bluetooth"); updateWarningBanner(); return }
 
-        // reset UI on each new scan (clear gauge & values)
+        // reset on each new scan
         devices.clear(); rows.clear(); adapterLv.clear(); advertisedName.clear()
         gauge.setPercent(0)
         tvSOC.text = "-"
@@ -303,18 +324,19 @@ class MainActivity : AppCompatActivity() {
             if (newState == BluetoothProfile.STATE_CONNECTED) {
                 g.discoverServices()
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
+                handler.removeCallbacks(pollTask)
                 chNotify = null; chWrite = null; rxBuffer.clear()
                 g.close()
             }
         }
 
         override fun onServicesDiscovered(g: BluetoothGatt, status: Int) {
-            val svc = g.getService(Amitis_SERVICE)
-            chNotify = svc?.getCharacteristic(Amitis_READ_CH)
-            chWrite  = svc?.getCharacteristic(Amitis_WRITE_CH)
+            val svc = g.getService(AMITIS_SERVICE)
+            chNotify = svc?.getCharacteristic(AMITIS_READ_CH)
+            chWrite  = svc?.getCharacteristic(AMITIS_WRITE_CH)
             runOnUiThread {
                 if (svc == null || chNotify == null || chWrite == null) toast("Amitis FF00/FF01/FF02 not found")
-                else toast("Amitis BMS service ready")
+                else toast("Amitis service ready")
             }
             chNotify?.let { notifyCh ->
                 g.setCharacteristicNotification(notifyCh, true)
@@ -324,21 +346,23 @@ class MainActivity : AppCompatActivity() {
                     g.writeDescriptor(cccd)
                 }
             }
-            handler.postDelayed({
-                chWrite?.let { w ->
-                    w.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
-                    w.value = CMD_BASIC_INFO; g.writeCharacteristic(w)
-                    w.value = cmdReadRegister(0xA1); g.writeCharacteristic(w) // harmless extra query
-                }
-            }, 300)
+            // kick off continuous polling
+            handler.removeCallbacks(pollTask)
+            handler.postDelayed(pollTask, 300)
+            // optional: request EEPROM name once (harmless)
+            chWrite?.let { w ->
+                w.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
+                w.value = cmdReadRegister(0xA1)
+                g.writeCharacteristic(w)
+            }
         }
 
-        override fun onCharacteristicChanged(g: BluetoothGatt, characteristic: BluetoothGattCharacteristic) {
-            if (characteristic.uuid == Amitis_READ_CH) onAmitisBytes(characteristic.value ?: return)
+        override fun onCharacteristicChanged(g: BluetoothGatt, ch: BluetoothGattCharacteristic) {
+            if (ch.uuid == AMITIS_READ_CH) onAmitisBytes(ch.value ?: return)
         }
     }
 
-    // ---------- Amitis frames ----------
+    // ---------- Amitis (JBD) frames ----------
     private fun onAmitisBytes(chunk: ByteArray) {
         synchronized(rxBuffer) {
             chunk.forEach { rxBuffer.add(it) }
@@ -367,6 +391,7 @@ class MainActivity : AppCompatActivity() {
                 if (expected != got || status != 0) continue
 
                 if (reg == 0x03) handleBasicInfo(payload)
+                if (reg == 0xA1) handleDeviceName(payload)
             }
         }
     }
@@ -390,13 +415,17 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun handleDeviceName(p0: ByteArray) {
+        var p = p0
+        if (p.isNotEmpty() && (p[0].toInt() and 0xFF) == (p.size - 1)) p = p.copyOfRange(1, p.size)
+        val name = try { String(p.dropLastWhile { it == 0.toByte() }.toByteArray(), Charsets.US_ASCII).trim() } catch (_: Exception) { "" }
+        if (name.isNotEmpty()) runOnUiThread { tvName.text = name }
+    }
+
     // --- helpers / utils ---
     private fun hex(s: String): ByteArray =
         s.split(Regex("\\s+")).filter { it.isNotBlank() }.map { it.toInt(16).toByte() }.toByteArray()
-
-    private fun uuid(short: String) =
-        UUID.fromString("$short-0000-1000-8000-00805f9b34fb")
-
+    private fun uuid(short: String) = UUID.fromString("$short-0000-1000-8000-00805f9b34fb")
     private fun stateName(s: Int) = when (s) {
         BluetoothProfile.STATE_CONNECTING -> "CONNECTING"
         BluetoothProfile.STATE_CONNECTED -> "CONNECTED"
@@ -404,16 +433,15 @@ class MainActivity : AppCompatActivity() {
         BluetoothProfile.STATE_DISCONNECTED -> "DISCONNECTED"
         else -> "$s"
     }
-
     private fun toast(msg: String) = Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
-
     override fun onDestroy() {
         stopScan()
+        handler.removeCallbacks(pollTask)
         gatt?.close()
         super.onDestroy()
     }
 
-    // ===== Fancy, stylish semicircle fuel gauge =====
+    // ===== Fancy, stylish semicircle fuel gauge (red pointer, calibrated) =====
     class FancyFuelGauge(context: Context) : View(context) {
         private var pct = 0
         private var label = "SOC"
@@ -424,42 +452,34 @@ class MainActivity : AppCompatActivity() {
             strokeWidth = 28f
             strokeCap = Paint.Cap.ROUND
         }
-
         private val progArc = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             style = Paint.Style.STROKE
             strokeWidth = 28f
             strokeCap = Paint.Cap.ROUND
         }
-
         private val tickPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.parseColor("#9CA3AF")
             style = Paint.Style.STROKE
             strokeWidth = 3.5f
         }
-
         private val needlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.parseColor("#111827")
+            color = Color.parseColor("#EF4444") // RED pointer
             style = Paint.Style.FILL
         }
-
         private val textBig = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.parseColor("#111827")
             textAlign = Paint.Align.CENTER
-            textSize = 40f
+            textSize = 34f
             typeface = Typeface.create(Typeface.DEFAULT_BOLD, Typeface.BOLD)
         }
-
         private val textSmall = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.parseColor("#6B7280")
             textAlign = Paint.Align.CENTER
-            textSize = 18f
+            textSize = 16f
+            typeface = Typeface.create(Typeface.DEFAULT_BOLD, Typeface.BOLD)
         }
 
-        fun setPercent(v: Int) {
-            pct = v.coerceIn(0, 100)
-            invalidate()
-        }
-
+        fun setPercent(v: Int) { pct = v.coerceIn(0, 100); invalidate() }
         fun setLabel(s: String) { label = s; invalidate() }
 
         override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
@@ -481,38 +501,42 @@ class MainActivity : AppCompatActivity() {
                 pad + size
             )
 
-            // gradient color for progress
-            val color = when {
-                pct >= 80 -> Color.parseColor("#22C55E")
-                pct >= 30 -> Color.parseColor("#F59E0B")
-                else      -> Color.parseColor("#EF4444")
+            // gradient for progress color by level
+            val levelColor = when {
+                pct >= 80 -> Color.parseColor("#22C55E") // green
+                pct >= 30 -> Color.parseColor("#F59E0B") // amber
+                else      -> Color.parseColor("#EF4444") // red
             }
             val shader = SweepGradient(rect.centerX(), rect.centerY(),
-                intArrayOf(Color.parseColor("#06B6D4"), color),
+                intArrayOf(Color.parseColor("#06B6D4"), levelColor),
                 floatArrayOf(0.0f, 1.0f)
             )
             progArc.shader = shader
 
-            // angles (semi circle)
+            // calibrated angles: 0% = 180°, 100% = 360°
             val startAngle = 180f
             val sweepTotal = 180f
-            c.drawArc(rect, startAngle, sweepTotal, false, bgArc)
 
-            // ticks (every 10%)
+            // background
+            c.drawArc(rect, startAngle, sweepTotal, false, bgArc)
             drawTicks(c, rect, startAngle, sweepTotal)
 
             // progress arc
             val sweep = sweepTotal * (pct / 100f)
-            c.save()
             c.drawArc(rect, startAngle, sweep, false, progArc)
 
-            // needle
+            // red pointer needle at exact % angle
             drawNeedle(c, rect, startAngle + sweep)
-            c.restore()
 
-            // center texts
-            c.drawText("$pct%", w / 2f, rect.centerY() + 22f, textBig)
-            c.drawText(label, w / 2f, rect.centerY() + 52f, textSmall)
+            // center text: "SOC 85%"
+            val centerY = rect.centerY()
+            textBig.textAlign = Paint.Align.CENTER
+            c.drawText("SOC  $pct%", w / 2f, centerY + 20f, textBig)
+            // small min/max labels (0% and 100%)
+            textSmall.textAlign = Paint.Align.LEFT
+            c.drawText("0%", rect.left + 8f, centerY + 32f, textSmall)
+            textSmall.textAlign = Paint.Align.RIGHT
+            c.drawText("100%", rect.right - 8f, centerY + 32f, textSmall)
         }
 
         private fun drawTicks(c: Canvas, rect: RectF, start: Float, sweep: Float) {
