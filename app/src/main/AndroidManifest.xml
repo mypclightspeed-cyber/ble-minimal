@@ -18,7 +18,7 @@
         android:icon="@drawable/logo"
         android:roundIcon="@drawable/logo"
         android:allowBackup="true"
-        android:label="BLE Minimal"
+        android:label="Amitis BMS"
         android:supportsRtl="true"
         android:theme="@style/Theme.BleMinimal">
         <activity
