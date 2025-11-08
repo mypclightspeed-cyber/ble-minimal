@@ -22,7 +22,7 @@ import androidx.core.content.ContextCompat
 import java.util.UUID
 import kotlin.math.*
 
-class MainActivity : AppCompatActivity() {
+class MeterActivity : AppCompatActivity() {
 
     // --- scan/config ---
     private val SCAN_MS = 20_000L
