@@ -16,6 +16,11 @@ import androidx.core.content.ContextCompat
 import java.util.UUID
 import kotlin.math.*
 
+/**
+ * MeterActivity – main SOC half gauge + two mini half gauges (Voltage left, Current right).
+ * Style: M1 (all gauges with a red needle pointer). No temperature shown.
+ * Expects "mac" and "name" in intent extras from ScanActivity.
+ */
 class MeterActivity : AppCompatActivity() {
 
     // ---- UUID helpers ----
@@ -29,10 +34,9 @@ class MeterActivity : AppCompatActivity() {
 
     // ---- UI refs ----
     private lateinit var tvDevice: TextView
-    private lateinit var tvTemp: TextView
     private lateinit var socGauge: ModernHalfGauge
-    private lateinit var vGauge: MiniGauge
-    private lateinit var aGauge: MiniGauge
+    private lateinit var vGauge: MiniNeedleGauge
+    private lateinit var aGauge: MiniNeedleGauge
 
     // ---- BLE ----
     private var gatt: BluetoothGatt? = null
@@ -76,11 +80,11 @@ class MeterActivity : AppCompatActivity() {
             setTextColor(Color.parseColor("#374151"))
         }
 
-        // Mini gauges (left: V, right: A)
-        vGauge = MiniGauge(this).apply {
+        // Mini gauges (left: V, right: A) – needle style
+        vGauge = MiniNeedleGauge(this).apply {
             setTitle("V"); setUnit("V"); setRange(0.0, 60.0)
         }
-        aGauge = MiniGauge(this).apply {
+        aGauge = MiniNeedleGauge(this).apply {
             setTitle("A"); setUnit("A"); setRange(-200.0, 200.0)
         }
 
@@ -90,22 +94,12 @@ class MeterActivity : AppCompatActivity() {
             setPercent(0)
         }
 
-        // A row with mini gauges and the main SOC in the middle
         val threeCol = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             weightSum = 10f
             addView(vGauge, LinearLayout.LayoutParams(0, 220, 3f).apply { setMargins(8, 8, 8, 8) })
             addView(socGauge, LinearLayout.LayoutParams(0, 320, 4f).apply { setMargins(8, 8, 8, 8) })
             addView(aGauge, LinearLayout.LayoutParams(0, 220, 3f).apply { setMargins(8, 8, 8, 8) })
-        }
-
-        // Temperature box
-        tvTemp = TextView(this).apply {
-            text = "Temperature: -"
-            textSize = 18f
-            setTextColor(Color.WHITE)
-            setPadding(22, 16, 22, 16)
-            setBackgroundColor(Color.parseColor("#8B5CF6"))
         }
 
         val root = ScrollView(this).apply {
@@ -115,9 +109,6 @@ class MeterActivity : AppCompatActivity() {
                 addView(title)
                 addView(tvDevice)
                 addView(threeCol)
-                addView(tvTemp, LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
-                ).apply { setMargins(8, 4, 8, 8) })
             })
         }
         setContentView(root)
@@ -236,20 +227,10 @@ class MeterActivity : AppCompatActivity() {
         val current = iS / 100.0
         val soc = (p[23].toInt() and 0xFF).coerceIn(0, 100)
 
-        var tempC: Double? = null
-        if (p.size > 28) {
-            val ntcCount = p[26].toInt() and 0xFF
-            if (ntcCount > 0) {
-                val rawT = ((p[27].toInt() and 0xFF) shl 8) or (p[28].toInt() and 0xFF)
-                tempC = (rawT - 2731.5) / 10.0
-            }
-        }
-
         runOnUiThread {
             socGauge.setPercent(soc)
             vGauge.setValue(voltage)
             aGauge.setValue(current)
-            tvTemp.text = if (tempC != null) "Temperature: %.1f °C".format(tempC) else "Temperature: -"
         }
     }
 
@@ -259,6 +240,7 @@ class MeterActivity : AppCompatActivity() {
     private fun toast(s: String) = runOnUiThread { Toast.makeText(this, s, Toast.LENGTH_SHORT).show() }
 
     // ---------- Custom Views ----------
+    /** Main center SOC half gauge (with pointer) */
     class ModernHalfGauge(context: Context) : View(context) {
         private var pct = 0
         private var label = "SOC"
@@ -322,7 +304,7 @@ class MeterActivity : AppCompatActivity() {
             val sweep = total * (pct / 100f)
             c.drawArc(rect, start, sweep, false, progress)
 
-            // Ticks (0,25,50,75,100), bold 0/50/100 and also 25/75 requested
+            // Ticks (0,25,50,75,100) – bold all five
             val marksBold = setOf(0,25,50,75,100)
             for (i in 0..10) {
                 val m = i*10
@@ -370,50 +352,70 @@ class MeterActivity : AppCompatActivity() {
         }
     }
 
-    class MiniGauge(context: Context) : FrameLayout(context) {
+    /** Mini half gauge with needle (used for V and A) */
+    class MiniNeedleGauge(context: Context) : View(context) {
         private var title = ""
         private var unit = ""
         private var min = 0.0
         private var max = 100.0
         private var value = 0.0
 
-        private val titleTv = TextView(context).apply {
-            textSize = 14f; setTypeface(typeface, Typeface.BOLD); setTextColor(Color.parseColor("#374151"))
+        private val track = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#E5E7EB"); style = Paint.Style.STROKE; strokeWidth = 16f; strokeCap = Paint.Cap.ROUND
         }
-        private val canvasView = object : View(context) {
-            private val track = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                color = Color.parseColor("#E5E7EB"); style = Paint.Style.STROKE; strokeWidth = 18f; strokeCap = Paint.Cap.ROUND
-            }
-            private val progress = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                style = Paint.Style.STROKE; strokeWidth = 18f; strokeCap = Paint.Cap.ROUND
-            }
-            private val text = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                color = Color.parseColor("#111827"); textAlign = Paint.Align.CENTER; textSize = 22f; typeface = Typeface.DEFAULT_BOLD
-            }
-            override fun onDraw(c: Canvas) {
-                val pad = 14f
-                val w = width.toFloat(); val h = height.toFloat()
-                val size = kotlin.math.min(w, h) - pad*2
-                val rect = RectF((w - size)/2f, pad, (w + size)/2f, pad + size)
-                val start = 180f; val sweep = 180f
-                c.drawArc(rect, start, sweep, false, track)
-                val t = ((value - min)/(max - min)).coerceIn(0.0,1.0).toFloat()
-                val levelColor = if (title == "A" && value < 0) Color.parseColor("#3B82F6") else Color.parseColor("#10B981")
-                progress.color = levelColor
-                c.drawArc(rect, start, sweep * t, false, progress)
-                c.drawText(String.format("%.2f %s", value, unit), w/2f, rect.centerY()+12f, text)
-            }
+        private val progress = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE; strokeWidth = 16f; strokeCap = Paint.Cap.ROUND; color = Color.parseColor("#10B981")
+        }
+        private val pointer = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#EF4444"); style = Paint.Style.FILL
+        }
+        private val labelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#374151"); textAlign = Paint.Align.CENTER; textSize = 18f; typeface = Typeface.DEFAULT_BOLD
+        }
+        private val valuePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#111827"); textAlign = Paint.Align.CENTER; textSize = 22f; typeface = Typeface.DEFAULT_BOLD
         }
 
-        init {
-            setPadding(8,8,8,8)
-            addView(titleTv, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT).apply { setMargins(8,0,0,0) })
-            addView(canvasView, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+        fun setTitle(t: String) { title = t; invalidate() }
+        fun setUnit(u: String) { unit = u; invalidate() }
+        fun setRange(mi: Double, ma: Double) { min = mi; max = ma; invalidate() }
+        fun setValue(v: Double) { value = v; invalidate() }
+
+        override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+            val w = MeasureSpec.getSize(widthMeasureSpec)
+            val h = MeasureSpec.getSize(heightMeasureSpec)
+            val hh = max(h, 200) // keep some height
+            setMeasuredDimension(w, hh)
         }
 
-        fun setTitle(t: String) { title = t; titleTv.text = t }
-        fun setUnit(u: String) { unit = u }
-        fun setRange(mi: Double, ma: Double) { min = mi; max = ma; canvasView.invalidate() }
-        fun setValue(v: Double) { value = v; canvasView.invalidate() }
+        override fun onDraw(c: Canvas) {
+            val pad = 18f
+            val w = width.toFloat(); val h = height.toFloat()
+            val size = min(w - pad*2, h*2 - pad*2)
+            val rect = RectF((w - size)/2f, pad, (w + size)/2f, pad + size)
+            val start = 180f; val total = 180f
+
+            // Track + progress
+            c.drawArc(rect, start, total, false, track)
+            val t = ((value - min)/(max - min)).coerceIn(0.0,1.0).toFloat()
+            c.drawArc(rect, start, total * t, false, progress)
+
+            // Needle
+            val angle = start + total * t
+            val cx = rect.centerX(); val cy = rect.centerY()
+            val r = rect.width()/2.25f; val ang = Math.toRadians(angle.toDouble())
+            val tipX = (cx + r * cos(ang)).toFloat(); val tipY = (cy + r * sin(ang)).toFloat()
+            val baseW = 12f; val back = 34f; val perp = ang + Math.PI/2
+            val b1x = (cx - back * cos(ang) + baseW * cos(perp)).toFloat()
+            val b1y = (cy - back * sin(ang) + baseW * sin(perp)).toFloat()
+            val b2x = (cx - back * cos(ang) - baseW * cos(perp)).toFloat()
+            val b2y = (cy - back * sin(ang) - baseW * sin(perp)).toFloat()
+            val path = Path(); path.moveTo(tipX, tipY); path.lineTo(b1x, b1y); path.lineTo(b2x, b2y); path.close()
+            c.drawPath(path, pointer); c.drawCircle(cx, cy, 10f, pointer)
+
+            // Title and numeric value
+            c.drawText(title, w/2f, rect.top - 8f, labelPaint)
+            c.drawText(String.format("%.2f %s", value, unit), w/2f, rect.centerY()+16f, valuePaint)
+        }
     }
 }
