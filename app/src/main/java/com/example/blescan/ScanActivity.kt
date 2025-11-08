@@ -88,7 +88,9 @@ class ScanActivity : AppCompatActivity() {
             val entry = adapterLv.getItem(pos) ?: return@setOnItemClickListener
             val mac = entry.substringBefore("  ")
             val name = advertisedName[mac] ?: "Unknown"
-            val i = Intent(this, MeterActivity::class.java)
+    try { scanner?.stopScan(scanCb) } catch (_: Exception) {}
+    scanning = false
+                val i = Intent(this, com.example.blescan.MeterActivity::class.java)
             i.putExtra("mac", mac)
             i.putExtra("name", name)
             startActivity(i)
