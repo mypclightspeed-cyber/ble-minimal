@@ -1,5 +1,4 @@
 package com.example.blescan
-
 import android.Manifest
 import android.bluetooth.*
 import android.content.Context
