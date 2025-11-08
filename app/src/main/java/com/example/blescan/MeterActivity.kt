@@ -48,14 +48,20 @@ class MeterActivity : AppCompatActivity() {
     private val rxBuffer = ArrayList<Byte>()
     private val handler = Handler(Looper.getMainLooper())
 
+    // permission retry state
+    private val REQ_CONNECT = 2101
+    private var pendingMac: String? = null
+
     private val pollIntervalMs = 1000L
     private val pollTask = object : Runnable {
         override fun run() {
             chWrite?.let { w ->
                 gatt?.let { g ->
-                    w.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
-                    w.value = CMD_BASIC_INFO
-                    g.writeCharacteristic(w)
+                    try {
+                        w.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
+                        w.value = CMD_BASIC_INFO
+                        g.writeCharacteristic(w)
+                    } catch (_: SecurityException) { /* ignore if permission flips */ }
                 }
             }
             handler.postDelayed(this, pollIntervalMs)
@@ -135,14 +141,36 @@ class MeterActivity : AppCompatActivity() {
 
         btnBack.setOnClickListener { finish() }
 
-        // Avoid ScanActivity reference: use literal keys set by ScanActivity
         val mac = intent.getStringExtra("mac")
         val name = intent.getStringExtra("name") ?: ""
         tvDevice.text = name
         bluetoothAdapter = (getSystemService(BLUETOOTH_SERVICE) as BluetoothManager).adapter
 
         if (mac.isNullOrBlank()) { Toast.makeText(this, "No device MAC provided", Toast.LENGTH_SHORT).show(); finish(); return }
+        // ask for BLUETOOTH_CONNECT if needed
+        if (!hasConnectPermission()) {
+            pendingMac = mac
+            ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.BLUETOOTH_CONNECT), REQ_CONNECT)
+            return
+        }
         connectTo(bluetoothAdapter!!.getRemoteDevice(mac))
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == REQ_CONNECT) {
+            if (grantResults.isNotEmpty() && grantResults.all { it == PackageManager.PERMISSION_GRANTED }) {
+                val mac = pendingMac
+                pendingMac = null
+                if (!mac.isNullOrBlank()) {
+                    try { connectTo(bluetoothAdapter!!.getRemoteDevice(mac)) }
+                    catch (e: Exception) { Toast.makeText(this, "Connect failed: ${e.message}", Toast.LENGTH_SHORT).show() }
+                }
+            } else {
+                Toast.makeText(this, "BLUETOOTH_CONNECT permission is required to connect.", Toast.LENGTH_LONG).show()
+                finish()
+            }
+        }
     }
 
     override fun onDestroy() {
@@ -153,9 +181,15 @@ class MeterActivity : AppCompatActivity() {
     private fun connectTo(device: BluetoothDevice) {
         if (!ensurePrereqs()) return
         gatt?.close()
-        gatt = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M)
-            device.connectGatt(this, false, gattCb, BluetoothDevice.TRANSPORT_LE)
-        else device.connectGatt(this, false, gattCb)
+        try {
+            gatt = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M)
+                device.connectGatt(this, false, gattCb, BluetoothDevice.TRANSPORT_LE)
+            else device.connectGatt(this, false, gattCb)
+        } catch (se: SecurityException) {
+            Toast.makeText(this, "Missing BLUETOOTH_CONNECT permission", Toast.LENGTH_LONG).show()
+        } catch (e: Exception) {
+            Toast.makeText(this, "Connect error: ${e.message}", Toast.LENGTH_SHORT).show()
+        }
     }
 
     private fun ensurePrereqs(): Boolean {
@@ -194,18 +228,28 @@ class MeterActivity : AppCompatActivity() {
             }
         }
         override fun onServicesDiscovered(g: BluetoothGatt, status: Int) {
-            val svc = g.getService(AMITIS_SERVICE)
-            chNotify = svc?.getCharacteristic(AMITIS_READ_CH)
-            chWrite  = svc?.getCharacteristic(AMITIS_WRITE_CH)
-            chNotify?.let { notifyCh ->
-                g.setCharacteristicNotification(notifyCh, true)
-                val cccd = notifyCh.getDescriptor(UUID.fromString("00002902-0000-1000-8000-00805f9b34fb"))
+            try {
+                val svc = g.getService(AMITIS_SERVICE)
+                if (svc == null) {
+                    runOnUiThread { Toast.makeText(this@MeterActivity, "Amitis service not found", Toast.LENGTH_SHORT).show() }
+                    return
+                }
+                chNotify = svc.getCharacteristic(AMITIS_READ_CH)
+                chWrite  = svc.getCharacteristic(AMITIS_WRITE_CH)
+                if (chNotify == null || chWrite == null) {
+                    runOnUiThread { Toast.makeText(this@MeterActivity, "Amitis characteristics missing", Toast.LENGTH_SHORT).show() }
+                    return
+                }
+                g.setCharacteristicNotification(chNotify, true)
+                val cccd = chNotify!!.getDescriptor(UUID.fromString("00002902-0000-1000-8000-00805f9b34fb"))
                 if (cccd != null) {
                     cccd.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
                     g.writeDescriptor(cccd)
                 }
+                handler.removeCallbacks(pollTask); handler.postDelayed(pollTask, 300)
+            } catch (_: SecurityException) {
+                runOnUiThread { Toast.makeText(this@MeterActivity, "Missing BLUETOOTH_CONNECT permission", Toast.LENGTH_LONG).show() }
             }
-            handler.removeCallbacks(pollTask); handler.postDelayed(pollTask, 300)
         }
         override fun onCharacteristicChanged(g: BluetoothGatt, ch: BluetoothGattCharacteristic) {
             if (ch.uuid == AMITIS_READ_CH) onAmitisBytes(ch.value ?: return)
@@ -271,7 +315,7 @@ class MeterActivity : AppCompatActivity() {
         }
     }
 
-    // ---- Utils (single definitions only) ----
+    // ---- Utils ----
     private fun hex(s: String): ByteArray =
         s.split(Regex("\\s+")).filter { it.isNotBlank() }.map { it.toInt(16).toByte() }.toByteArray()
     private fun uuid(short: String) = UUID.fromString("$short-0000-1000-8000-00805f9b34fb")
@@ -280,6 +324,10 @@ class MeterActivity : AppCompatActivity() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) lm.isLocationEnabled
         else lm.isProviderEnabled(LocationManager.GPS_PROVIDER) || lm.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
     } catch (_: Exception) { false }
+    private fun hasConnectPermission(): Boolean =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)
+            ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED
+        else true
 
     // ===== Stylish SOC gauge with 0/25/50/75/100 labels =====
     class ModernHalfGauge(context: Context) : View(context) {
@@ -335,8 +383,7 @@ class MeterActivity : AppCompatActivity() {
             c.drawArc(rect, startAngle, sweepTotal, false, track)
             drawTicks(c, rect, startAngle, sweepTotal)
             val levelColor = when { pct >= 80 -> Color.parseColor("#22C55E"); pct >= 30 -> Color.parseColor("#F59E0B"); else -> Color.parseColor("#EF4444") }
-            val shader = SweepGradient(rect.centerX(), rect.centerY(), intArrayOf(Color.parseColor("#06B6D4"), levelColor), floatArrayOf(0f, 1f))
-            progress.shader = shader
+            progress.color = levelColor
             val sweep = sweepTotal * (pct / 100f); c.drawArc(rect, startAngle, sweep, false, progress)
             drawPointer(c, rect, startAngle + sweep)
             drawLabels(c, rect, startAngle, sweepTotal)
