@@ -2,7 +2,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="com.example.blescan">
 
-    <!-- Legacy permissions for <= Android 11 -->
+    <!-- Legacy permissions (Android <= 11) -->
     <uses-permission
         android:name="android.permission.BLUETOOTH"
         android:maxSdkVersion="30" />
@@ -10,15 +10,15 @@
         android:name="android.permission.BLUETOOTH_ADMIN"
         android:maxSdkVersion="30" />
 
-    <!-- Android 12+ runtime permissions -->
+    <!-- Android 12+ -->
     <uses-permission android:name="android.permission.BLUETOOTH_SCAN" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
     <uses-permission android:name="android.permission.BLUETOOTH_ADVERTISE" />
 
-    <!-- Location needed for BLE discovery on many devices -->
+    <!-- Location for BLE discovery on many phones -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
 
-    <!-- Make sure device has BLE -->
+    <!-- require BLE hardware -->
     <uses-feature
         android:name="android.hardware.bluetooth_le"
         android:required="true" />
@@ -31,20 +31,26 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.BleMinimal">
 
-        <!-- PAGE 2: Meter / gauges screen -->
+        <!-- SPLASH (launcher page) -->
         <activity
-            android:name=".MeterActivity"
-            android:exported="false" />
-
-        <!-- PAGE 1: Scan & list devices (launcher) -->
-        <activity
-            android:name=".ScanActivity"
-            android:exported="true">
+            android:name=".SplashActivity"
+            android:exported="true"
+            android:theme="@style/Theme.BleMinimal">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- Page 1 : device scan -->
+        <activity
+            android:name=".ScanActivity"
+            android:exported="false" />
+
+        <!-- Page 2 : meter screen -->
+        <activity
+            android:name=".MeterActivity"
+            android:exported="false" />
 
     </application>
 
