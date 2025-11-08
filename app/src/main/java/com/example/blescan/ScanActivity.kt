@@ -12,6 +12,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
+import android.view.Gravity
 import android.view.View
 import android.widget.*
 import androidx.appcompat.app.AlertDialog
@@ -39,8 +40,19 @@ class ScanActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        // --- Siemens-green top bar ---
+        val topBar = TextView(this).apply {
+            text = "Powerd On by Amitis"
+            // Siemens green (approx): #00A1A0
+            setBackgroundColor(0xFF00A1A0.toInt())
+            setTextColor(0xFFFFFFFF.toInt())
+            textSize = 14f
+            gravity = Gravity.CENTER
+            setPadding(0, dp(6), 0, dp(6)) // narrow bar
+        }
+
         bannerWarn = TextView(this).apply {
-            setPadding(20,14,20,14)
+            setPadding(dp(12), dp(8), dp(12), dp(8))
             textSize = 14f
             setTextColor(0xFFFFFFFF.toInt())
             setBackgroundColor(0xFFDC2626.toInt())
@@ -53,7 +65,10 @@ class ScanActivity : AppCompatActivity() {
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(12,12,12,12)
+            setPadding(dp(12), dp(12), dp(12), dp(12))
+            addView(topBar, LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = dp(8) })
             addView(bannerWarn)
             addView(btnScan)
             addView(list, LinearLayout.LayoutParams(
@@ -168,4 +183,6 @@ class ScanActivity : AppCompatActivity() {
         if (!scanning) return
         scanner?.stopScan(scanCb); scanning = false
     }
+
+    private fun dp(v:Int):Int = (v * resources.displayMetrics.density).toInt()
 }
