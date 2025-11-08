@@ -45,19 +45,22 @@ class MeterActivity : AppCompatActivity() {
 
     // --- UI ---
     private lateinit var bannerWarn: TextView
-
+    private lateinit var btnScan: Button
+    private lateinit var list: ListView
     private lateinit var gauge: ModernHalfGauge
 
     private lateinit var tvVolt: TextView
     private lateinit var tvCurr: TextView
     private lateinit var tvName: TextView
+
+    private lateinit var adapterLv: ArrayAdapter<String>
     private val rows = mutableListOf<String>()                     // "MAC  Name"
     private val devices = LinkedHashMap<String, BluetoothDevice>() // MAC -> device
     private val advertisedName = HashMap<String, String>()         // MAC -> name from scan
 
     // --- BLE ---
     private var bluetoothAdapter: BluetoothAdapter? = null
-
+    private var scanner: BluetoothLeScanner? = null
     private var scanning = false
     private val handler = Handler(Looper.getMainLooper())
 
@@ -100,6 +103,9 @@ class MeterActivity : AppCompatActivity() {
             setBackgroundColor(Color.parseColor("#DC2626"))
             visibility = View.GONE
         }
+
+        btnScan = Button(this).apply { text = "Start Scan (20s)" }
+        list = ListView(this)
 
         // Gauge style 3 (modern half-circle) with A1: 180° sweep, start at 180°
         gauge = ModernHalfGauge(this).apply {
@@ -149,7 +155,9 @@ class MeterActivity : AppCompatActivity() {
             setPadding(12, 12, 12, 12)
             addView(logo)
             addView(bannerWarn)
-)
+            addView(btnScan)
+            addView(list, LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
             addView(gauge)          // gauge ABOVE parameters
             addView(cardVolt)
             addView(cardCurr)
@@ -157,36 +165,25 @@ class MeterActivity : AppCompatActivity() {
         }
         setContentView(root)
 
-        
-
-// --- Direct connect using MAC from ScanActivity ---
-val mac = intent.getStringExtra("mac")
-val name = intent.getStringExtra("name") ?: "Unknown"
-try { findViewById<TextView?>(R.id.tvDeviceName)?.text = name } catch (_: Exception) {}
-if (mac.isNullOrBlank()) {
-    Toast.makeText(this, "No device MAC from ScanActivity", Toast.LENGTH_SHORT).show()
-    finish(); return
-} else {
-    val mgr = getSystemService(BLUETOOTH_SERVICE) as android.bluetooth.BluetoothManager
-    val adapter = mgr.adapter
-    if (adapter == null) { Toast.makeText(this, "Bluetooth unavailable", Toast.LENGTH_SHORT).show(); finish(); return }
-    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S &&
-        androidx.core.content.ContextCompat.checkSelfPermission(this, android.Manifest.permission.BLUETOOTH_CONNECT)
-        != android.content.pm.PackageManager.PERMISSION_GRANTED) {
-        androidx.core.app.ActivityCompat.requestPermissions(this, arrayOf(android.Manifest.permission.BLUETOOTH_CONNECT), 2101)
-    } else {
-        try { connectTo(adapter.getRemoteDevice(mac)) } catch (e: Exception) {
-            Toast.makeText(this, "Connect error: ${e.message}", Toast.LENGTH_SHORT).show(); finish(); return
-        }
-    }
-}
-
-bluetoothAdapter = (getSystemService(BLUETOOTH_SERVICE) as BluetoothManager).adapter
+        bluetoothAdapter = (getSystemService(BLUETOOTH_SERVICE) as BluetoothManager).adapter
         scanner = bluetoothAdapter?.bluetoothLeScanner
 
         adapterLv = ArrayAdapter(this, android.R.layout.simple_list_item_1, ArrayList())
         list.adapter = adapterLv
 
+        btnScan.setOnClickListener {
+            if (!ensurePrereqs()) return@setOnClickListener
+            if (checkAndRequestPermissions()) startScan()
+        }
+
+        list.setOnItemClickListener { _, _, pos, _ ->
+            val entry = adapterLv.getItem(pos) ?: return@setOnItemClickListener
+            val mac = entry.substringBefore("  ")
+            val dev = devices[mac] ?: return@setOnItemClickListener
+            // Use advertiser name directly
+            tvName.text = advertisedName[mac] ?: "Unknown"
+            connectTo(dev)
+        }
     }
 
     override fun onResume() { super.onResume(); updateWarningBanner() }
@@ -250,7 +247,8 @@ bluetoothAdapter = (getSystemService(BLUETOOTH_SERVICE) as BluetoothManager).ada
     private fun has(p: String) = ContextCompat.checkSelfPermission(this, p) == PackageManager.PERMISSION_GRANTED
     override fun onRequestPermissionsResult(rc: Int, p: Array<out String>, r: IntArray) {
         super.onRequestPermissionsResult(rc, p, r)
-        if (rc == PERM_REQUEST && r.all { it == PackageManager.PERMISSION_GRANTED }) /* removed startScan */else toast("Permission required")
+        if (rc == PERM_REQUEST && r.all { it == PackageManager.PERMISSION_GRANTED }) startScan()
+        else toast("Permission required")
     }
 
     // ---------- scan ----------
@@ -270,9 +268,39 @@ bluetoothAdapter = (getSystemService(BLUETOOTH_SERVICE) as BluetoothManager).ada
         override fun onScanFailed(code: Int) { toast("Scan failed: $code") }
     }
 
+    private fun startScan() {
+        if (scanning) return
+        val ad = bluetoothAdapter
+        if (ad == null || !ad.isEnabled) { toast("Turn ON Bluetooth"); updateWarningBanner(); return }
+
+        // reset on each new scan
+        devices.clear(); rows.clear(); adapterLv.clear(); advertisedName.clear()
+        gauge.setPercent(0)
+        tvVolt.text = "-"
+        tvCurr.text = "-"
+        tvName.text = ""
+
+        scanning = true
+        toast("Scanning for ${SCAN_MS/1000}s…")
+        handler.postDelayed({
+            stopScan()
+            toast("Scan done: ${rows.size} device(s) found")
+        }, SCAN_MS)
+
+        val settings = ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build()
+        scanner?.startScan(null, settings, scanCb)
+    }
+
+    private fun stopScan() {
+        if (!scanning) return
+        scanner?.stopScan(scanCb)
+        scanning = false
+    }
+
     // ---------- connect/services ----------
     private fun connectTo(device: BluetoothDevice) {
-        /* removed stopScan */toast("Connecting to ${device.address}…")
+        stopScan()
+        toast("Connecting to ${device.address}…")
         gatt?.close()
         gatt = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M)
             device.connectGatt(this, false, gattCb, BluetoothDevice.TRANSPORT_LE)
@@ -388,7 +416,8 @@ bluetoothAdapter = (getSystemService(BLUETOOTH_SERVICE) as BluetoothManager).ada
     }
     private fun toast(msg: String) = Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
     override fun onDestroy() {
-        /* removed stopScan */handler.removeCallbacks(pollTask)
+        stopScan()
+        handler.removeCallbacks(pollTask)
         gatt?.close()
         super.onDestroy()
     }
