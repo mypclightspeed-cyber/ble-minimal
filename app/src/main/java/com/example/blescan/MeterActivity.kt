@@ -71,24 +71,17 @@ class MeterActivity : AppCompatActivity() {
             visibility = View.GONE
         }
         btnBack = Button(this).apply { text = "← Back to Scan" }
-        tvDevice = TextView(this).apply {
-            textSize = 16f; setTextColor(Color.BLACK)
-        }
+        tvDevice = TextView(this).apply { textSize = 16f; setTextColor(Color.BLACK) }
 
         // Gauges
         gaugeSOC = ModernHalfGauge(this).apply {
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 380
             ).apply { setMargins(16, 8, 16, 8) }
-            setLabel("SOC")
-            setPercent(0)
+            setLabel("SOC"); setPercent(0)
         }
-        miniVolt = MiniGauge(this).apply {
-            setTitle("V"); setUnit("V"); setRange(0.0, 60.0)
-        }
-        miniCurr = MiniGauge(this).apply {
-            setTitle("A"); setUnit("A"); setRange(-200.0, 200.0)
-        }
+        miniVolt = MiniGauge(this).apply { setTitle("V"); setUnit("V"); setRange(0.0, 60.0) }
+        miniCurr = MiniGauge(this).apply { setTitle("A"); setUnit("A"); setRange(-200.0, 200.0) }
 
         // Colored cards
         fun makeCard(title: String, color: String): Pair<LinearLayout, TextView> {
@@ -104,9 +97,7 @@ class MeterActivity : AppCompatActivity() {
             val titleTv = TextView(this).apply {
                 text = title; textSize = 16f; setTypeface(typeface, Typeface.BOLD); setTextColor(Color.WHITE)
             }
-            val valueTv = TextView(this).apply {
-                text = "-"; textSize = 26f; setTextColor(Color.WHITE)
-            }
+            val valueTv = TextView(this).apply { text = "-"; textSize = 26f; setTextColor(Color.WHITE) }
             card.addView(titleTv); card.addView(valueTv)
             return card to valueTv
         }
@@ -136,33 +127,26 @@ class MeterActivity : AppCompatActivity() {
                 addView(gaugeSOC)
                 addView(cardVolt)
                 addView(cardCurr)
-                addView(cardTemp)   // temperature between current and device
+                addView(cardTemp)
                 addView(cardDev)
             })
         }
         setContentView(root)
 
-        // Back to scan
-        btnBack.setOnClickListener {
-            finish()
-        }
+        btnBack.setOnClickListener { finish() }
 
-        val mac = intent.getStringExtra(ScanActivity.EXTRA_MAC)
-        val name = intent.getStringExtra(ScanActivity.EXTRA_NAME) ?: ""
+        // Avoid ScanActivity reference: use literal keys set by ScanActivity
+        val mac = intent.getStringExtra("mac")
+        val name = intent.getStringExtra("name") ?: ""
         tvDevice.text = name
         bluetoothAdapter = (getSystemService(BLUETOOTH_SERVICE) as BluetoothManager).adapter
 
-        if (mac.isNullOrBlank()) {
-            Toast.makeText(this, "No device MAC provided", Toast.LENGTH_SHORT).show()
-            finish(); return
-        }
+        if (mac.isNullOrBlank()) { Toast.makeText(this, "No device MAC provided", Toast.LENGTH_SHORT).show(); finish(); return }
         connectTo(bluetoothAdapter!!.getRemoteDevice(mac))
     }
 
     override fun onDestroy() {
-        handler.removeCallbacks(pollTask)
-        gatt?.close()
-        super.onDestroy()
+        handler.removeCallbacks(pollTask); gatt?.close(); super.onDestroy()
     }
 
     // ---- BLE connect/notify ----
@@ -202,20 +186,11 @@ class MeterActivity : AppCompatActivity() {
         return ok
     }
 
-    private fun isLocationEnabled(ctx: Context): Boolean = try {
-        val lm = ctx.getSystemService(Context.LOCATION_SERVICE) as LocationManager
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) lm.isLocationEnabled
-        else lm.isProviderEnabled(LocationManager.GPS_PROVIDER) || lm.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
-    } catch (_: Exception) { false }
-
     private val gattCb = object : BluetoothGattCallback() {
         override fun onConnectionStateChange(g: BluetoothGatt, status: Int, newState: Int) {
-            if (newState == BluetoothProfile.STATE_CONNECTED) {
-                g.discoverServices()
-            } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
-                handler.removeCallbacks(pollTask)
-                chNotify = null; chWrite = null; rxBuffer.clear()
-                g.close()
+            if (newState == BluetoothProfile.STATE_CONNECTED) g.discoverServices()
+            else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
+                handler.removeCallbacks(pollTask); chNotify = null; chWrite = null; rxBuffer.clear(); g.close()
             }
         }
         override fun onServicesDiscovered(g: BluetoothGatt, status: Int) {
@@ -230,8 +205,7 @@ class MeterActivity : AppCompatActivity() {
                     g.writeDescriptor(cccd)
                 }
             }
-            handler.removeCallbacks(pollTask)
-            handler.postDelayed(pollTask, 300)
+            handler.removeCallbacks(pollTask); handler.postDelayed(pollTask, 300)
         }
         override fun onCharacteristicChanged(g: BluetoothGatt, ch: BluetoothGattCharacteristic) {
             if (ch.uuid == AMITIS_READ_CH) onAmitisBytes(ch.value ?: return)
@@ -270,16 +244,12 @@ class MeterActivity : AppCompatActivity() {
         }
     }
 
-    // Decode like BMS.py: voltage=bytes[4:6]/100, current=bytes[6:8] signed/100, SOC=byte 23, temp if ntc_count>0: raw=(b27<<8)|b28, C=(raw-2731.5)/10
     private fun handleBasicInfo(p: ByteArray) {
         if (p.size < 29) return
         val vRaw = ((p[4].toInt() and 0xFF) shl 8) or (p[5].toInt() and 0xFF)
         val iU = ((p[6].toInt() and 0xFF) shl 8) or (p[7].toInt() and 0xFF)
-        var iS = iU
-        if ((iS and 0x8000) != 0) iS = -((iS xor 0xFFFF) + 1)
-        val voltage = vRaw / 100.0
-        val current = iS / 100.0
-
+        var iS = iU; if ((iS and 0x8000) != 0) iS = -((iS xor 0xFFFF) + 1)
+        val voltage = vRaw / 100.0; val current = iS / 100.0
         val soc = (p[23].toInt() and 0xFF).coerceIn(0,100)
 
         var tempC: Double? = null
@@ -301,19 +271,17 @@ class MeterActivity : AppCompatActivity() {
         }
     }
 
-    // ---- Utils ----
+    // ---- Utils (single definitions only) ----
     private fun hex(s: String): ByteArray =
         s.split(Regex("\\s+")).filter { it.isNotBlank() }.map { it.toInt(16).toByte() }.toByteArray()
     private fun uuid(short: String) = UUID.fromString("$short-0000-1000-8000-00805f9b34fb")
-    private fun has(p: String) = ContextCompat.checkSelfPermission(this, p) == PackageManager.PERMISSION_GRANTED
-    private fun toast(msg: String) = Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
     private fun isLocationEnabled(ctx: Context): Boolean = try {
         val lm = ctx.getSystemService(Context.LOCATION_SERVICE) as LocationManager
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) lm.isLocationEnabled
         else lm.isProviderEnabled(LocationManager.GPS_PROVIDER) || lm.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
     } catch (_: Exception) { false }
 
-    // ===== Stylish SOC gauge (A1 180°, blue SOC text, 0/25/50/75/100 exact labels) =====
+    // ===== Stylish SOC gauge with 0/25/50/75/100 labels =====
     class ModernHalfGauge(context: Context) : View(context) {
         private var pct = 0
         private var label = "SOC"
@@ -352,13 +320,13 @@ class MeterActivity : AppCompatActivity() {
 
         override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
             val w = MeasureSpec.getSize(widthMeasureSpec)
-            val h = max((w * 0.55f).roundToInt(), 260)
+            val h = kotlin.math.max((w * 0.55f).roundToInt(), 260)
             setMeasuredDimension(w, h)
         }
         override fun onDraw(c: Canvas) {
             val pad = 36f
             val w = width.toFloat(); val h = height.toFloat()
-            val baseSize = min(w - pad * 2, h * 2.0f - pad * 2)
+            val baseSize = kotlin.math.min(w - pad * 2, h * 2.0f - pad * 2)
             val size = baseSize * radiusScale
             val rect = RectF((w - size)/2f, pad + (baseSize - size)/2f, (w + size)/2f, pad + (baseSize - size)/2f + size)
 
@@ -367,7 +335,8 @@ class MeterActivity : AppCompatActivity() {
             c.drawArc(rect, startAngle, sweepTotal, false, track)
             drawTicks(c, rect, startAngle, sweepTotal)
             val levelColor = when { pct >= 80 -> Color.parseColor("#22C55E"); pct >= 30 -> Color.parseColor("#F59E0B"); else -> Color.parseColor("#EF4444") }
-            progress.shader = SweepGradient(rect.centerX(), rect.centerY(), intArrayOf(Color.parseColor("#06B6D4"), levelColor), floatArrayOf(0f, 1f))
+            val shader = SweepGradient(rect.centerX(), rect.centerY(), intArrayOf(Color.parseColor("#06B6D4"), levelColor), floatArrayOf(0f, 1f))
+            progress.shader = shader
             val sweep = sweepTotal * (pct / 100f); c.drawArc(rect, startAngle, sweep, false, progress)
             drawPointer(c, rect, startAngle + sweep)
             drawLabels(c, rect, startAngle, sweepTotal)
@@ -389,7 +358,7 @@ class MeterActivity : AppCompatActivity() {
             val rThin = rOuter - 18f; val rBold = rOuter - 26f; val rMid = rOuter - 22f
             for (i in 0..10) {
                 val ang = Math.toRadians((start + sweep * (i / 10f)).toDouble())
-                val p = when (i) { 0,5,10 -> tickBold; 2,8 -> tickBold; else -> tick } // bold at 0,50,100 and also at 20%(~),80%(~); but we'll ensure 25/75 via labels
+                val p = when (i) { 0,5,10 -> tickBold; 2,8 -> tickBold; else -> tick }
                 val inner = when (i) { 0,5,10 -> rBold; 2,8 -> rMid; else -> rThin }
                 val sx = (cx + inner * cos(ang)).toFloat(); val sy = (cy + inner * sin(ang)).toFloat()
                 val ex = (cx + rOuter * cos(ang)).toFloat(); val ey = (cy + rOuter * sin(ang)).toFloat()
@@ -444,7 +413,7 @@ class MeterActivity : AppCompatActivity() {
             override fun onDraw(c: Canvas) {
                 val pad = 16f
                 val w = width.toFloat(); val h = height.toFloat()
-                val size = min(w, h) - pad*2
+                val size = kotlin.math.min(w, h) - pad*2
                 val rect = RectF((w - size)/2f, pad, (w + size)/2f, pad + size)
                 val start = 180f; val sweep = 180f
                 c.drawArc(rect, start, sweep, false, track)
@@ -467,6 +436,4 @@ class MeterActivity : AppCompatActivity() {
         fun setRange(mi: Double, ma: Double) { min = mi; max = ma; canvasView.invalidate() }
         fun setValue(v: Double) { value = v; canvasView.invalidate() }
     }
-
-    private fun uuid(short: String) = UUID.fromString("$short-0000-1000-8000-00805f9b34fb")
 }

@@ -20,11 +20,6 @@ import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 
 class ScanActivity : AppCompatActivity() {
-    companion object {
-        const val EXTRA_MAC = "mac"
-        const val EXTRA_NAME = "name"
-    }
-
     private val SCAN_MS = 20_000L
     private val PERM_REQUEST = 2001
 
@@ -79,8 +74,8 @@ class ScanActivity : AppCompatActivity() {
             val mac = entry.substringBefore("  ")
             val name = advertisedName[mac] ?: "Unknown"
             val i = Intent(this, MeterActivity::class.java)
-            i.putExtra(EXTRA_MAC, mac)
-            i.putExtra(EXTRA_NAME, name)
+            i.putExtra("mac", mac)
+            i.putExtra("name", name)
             startActivity(i)
         }
     }
