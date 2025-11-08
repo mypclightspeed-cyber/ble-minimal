@@ -14,20 +14,33 @@
     <!-- Older devices may need location for BLE discovery -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
 
+    <!-- BLE capability -->
+    <uses-feature android:name="android.hardware.bluetooth_le" android:required="true" />
+
     <application
+        android:name=".App"
         android:icon="@drawable/logo"
         android:roundIcon="@drawable/logo"
         android:allowBackup="true"
         android:label="Amitis BMS"
         android:supportsRtl="true"
-        android:theme="@style/Theme.BleMinimal">
+        android:theme="@style/Theme.AppCompat.Light.NoActionBar">
+
+        <!-- Page 2: Meter screen -->
         <activity
-            android:name=".MainActivity"
+            android:name=".MeterActivity"
+            android:exported="false" />
+
+        <!-- Page 1: Scan screen (launcher) -->
+        <activity
+            android:name=".ScanActivity"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
     </application>
+
 </manifest>
