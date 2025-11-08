@@ -3,35 +3,40 @@
     package="com.example.blescan">
 
     <!-- Legacy permissions for <= Android 11 -->
-    <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30"/>
-    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30"/>
+    <uses-permission
+        android:name="android.permission.BLUETOOTH"
+        android:maxSdkVersion="30" />
+    <uses-permission
+        android:name="android.permission.BLUETOOTH_ADMIN"
+        android:maxSdkVersion="30" />
 
     <!-- Android 12+ runtime permissions -->
-    <uses-permission android:name="android.permission.BLUETOOTH_SCAN"/>
-    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT"/>
-    <uses-permission android:name="android.permission.BLUETOOTH_ADVERTISE"/>
+    <uses-permission android:name="android.permission.BLUETOOTH_SCAN" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADVERTISE" />
 
-    <!-- Older devices may need location for BLE discovery -->
-    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
+    <!-- Location needed for BLE discovery on many devices -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
 
-    <!-- BLE capability -->
-    <uses-feature android:name="android.hardware.bluetooth_le" android:required="true" />
+    <!-- Make sure device has BLE -->
+    <uses-feature
+        android:name="android.hardware.bluetooth_le"
+        android:required="true" />
 
     <application
-        android:name=".App"
         android:icon="@drawable/logo"
         android:roundIcon="@drawable/logo"
         android:allowBackup="true"
         android:label="Amitis BMS"
         android:supportsRtl="true"
-        android:theme="@style/Theme.AppCompat.Light.NoActionBar">
+        android:theme="@style/Theme.BleMinimal">
 
-        <!-- Page 2: Meter screen -->
+        <!-- PAGE 2: Meter / gauges screen -->
         <activity
             android:name=".MeterActivity"
             android:exported="false" />
 
-        <!-- Page 1: Scan screen (launcher) -->
+        <!-- PAGE 1: Scan & list devices (launcher) -->
         <activity
             android:name=".ScanActivity"
             android:exported="true">
