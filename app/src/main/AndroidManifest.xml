@@ -3,54 +3,38 @@
     package="com.example.blescan">
 
     <!-- Legacy permissions (Android <= 11) -->
-    <uses-permission
-        android:name="android.permission.BLUETOOTH"
-        android:maxSdkVersion="30" />
-    <uses-permission
-        android:name="android.permission.BLUETOOTH_ADMIN"
-        android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30"/>
+    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30"/>
 
-    <!-- Android 12+ -->
-    <uses-permission android:name="android.permission.BLUETOOTH_SCAN" />
-    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
-    <uses-permission android:name="android.permission.BLUETOOTH_ADVERTISE" />
+    <!-- Android 12+ runtime permissions -->
+    <uses-permission android:name="android.permission.BLUETOOTH_SCAN"/>
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT"/>
+    <uses-permission android:name="android.permission.BLUETOOTH_ADVERTISE"/>
 
-    <!-- Location for BLE discovery on many phones -->
-    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <!-- Location for BLE discovery -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
 
-    <!-- require BLE hardware -->
-    <uses-feature
-        android:name="android.hardware.bluetooth_le"
-        android:required="true" />
+    <uses-feature android:name="android.hardware.bluetooth_le" android:required="true"/>
 
     <application
+        android:label="Amitis BMS"
         android:icon="@drawable/logo"
         android:roundIcon="@drawable/logo"
         android:allowBackup="true"
-        android:label="Amitis BMS"
         android:supportsRtl="true"
         android:theme="@style/Theme.BleMinimal">
 
-        <!-- SPLASH (launcher page) -->
         <activity
             android:name=".SplashActivity"
-            android:exported="true"
-            android:theme="@style/Theme.BleMinimal">
+            android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
 
-        <!-- Page 1 : device scan -->
-        <activity
-            android:name=".ScanActivity"
-            android:exported="false" />
-
-        <!-- Page 2 : meter screen -->
-        <activity
-            android:name=".MeterActivity"
-            android:exported="false" />
+        <activity android:name=".ScanActivity" android:exported="false"/>
+        <activity android:name=".MeterActivity" android:exported="false"/>
 
     </application>
 
