@@ -107,7 +107,7 @@ class MainActivity : AppCompatActivity() {
         btnScan = Button(this).apply { text = "Start Scan (20s)" }
         list = ListView(this)
 
-        // Gauge style 3 (modern half-circle), A3 sweep (140°), start at left horizon (180°), B1 radius shrink (0.75)
+        // Gauge style 3 (modern half-circle) with A1: 180° sweep, start at 180°
         gauge = ModernHalfGauge(this).apply {
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 380
@@ -422,12 +422,12 @@ class MainActivity : AppCompatActivity() {
         super.onDestroy()
     }
 
-    // ===== Gauge Style 3 (Modern half-circle): A3 sweep 140°, start at 180°, radius shrink 0.75, red pointer, bigger SOC font =====
+    // ===== Gauge Style 3 (Modern half-circle): A1 sweep 180°, start at 180°, radius shrink 0.75, red pointer, blue SOC text upper-middle =====
     class ModernHalfGauge(context: Context) : View(context) {
         private var pct = 0
         private var label = "SOC"
 
-        // B1: radius shrink factor
+        // radius shrink factor (B1)
         private val radiusScale = 0.75f
 
         private val track = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -455,11 +455,17 @@ class MainActivity : AppCompatActivity() {
             color = Color.parseColor("#EF4444") // red
             style = Paint.Style.FILL
         }
-        // Center SOC text — one step bigger than previous (42f -> 48f)
-        private val textCenter = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.parseColor("#111827")
-            textAlign = Paint.Align.CENTER
-            textSize = 48f
+        // SOC text — bigger and blue, drawn upper-middle with extra gap
+        private val socPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#2563EB") // blue
+            textAlign = Paint.Align.LEFT
+            textSize = 54f
+            typeface = Typeface.create(Typeface.DEFAULT_BOLD, Typeface.BOLD)
+        }
+        private val pctPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#2563EB") // blue
+            textAlign = Paint.Align.LEFT
+            textSize = 54f
             typeface = Typeface.create(Typeface.DEFAULT_BOLD, Typeface.BOLD)
         }
         // Arc labels — large
@@ -477,21 +483,22 @@ class MainActivity : AppCompatActivity() {
             val h = max((w * 0.55f).roundToInt(), 260)
             setMeasuredDimension(w, h)
         }
+
         override fun onDraw(c: Canvas) {
             super.onDraw(c)
             val pad = 36f
             val w = width.toFloat()
             val h = height.toFloat()
             val baseSize = min(w - pad * 2, h * 2.0f - pad * 2)
-            val size = baseSize * radiusScale  // B1 shrink
+            val size = baseSize * radiusScale
             val rect = RectF(
                 (w - size) / 2f, pad + (baseSize - size) / 2f,
                 (w + size) / 2f, pad + (baseSize - size) / 2f + size
             )
 
-            // A3: sweep 140°, start at left horizon (180°), clockwise
+            // A1: sweep 180°, start at left horizon (180°), clockwise
             val startAngle = 180f
-            val sweepTotal = 140f
+            val sweepTotal = 180f
 
             // track
             c.drawArc(rect, startAngle, sweepTotal, false, track)
@@ -520,9 +527,19 @@ class MainActivity : AppCompatActivity() {
             // labels at 0/25/50/75/100
             drawLabels(c, rect, startAngle, sweepTotal)
 
-            // center: "SOC 85%"
-            val cy = rect.centerY()
-            c.drawText("$label  $pct%", w / 2f, cy + 20f, textCenter)
+            // SOC text in upper-middle: draw "SOC" and "<pct>%" with extra gap, centered
+            val gap = 44f // extra spacing
+            val socText = label
+            val pctText = "$pct%"
+            val socW = socPaint.measureText(socText)
+            val pctW = pctPaint.measureText(pctText)
+            val totalW = socW + gap + pctW
+            val y = rect.centerY() - rect.height()*0.18f  // upper placement
+            val startX = (w - totalW) / 2f
+            val fm = socPaint.fontMetrics
+            val baseline = y - (fm.ascent + fm.descent)/2f
+            c.drawText(socText, startX, baseline, socPaint)
+            c.drawText(pctText, startX + socW + gap, baseline, pctPaint)
         }
 
         private fun drawTicks(c: Canvas, rect: RectF, start: Float, sweep: Float) {
@@ -581,6 +598,3 @@ class MainActivity : AppCompatActivity() {
         }
     }
 }
-
-
-        
