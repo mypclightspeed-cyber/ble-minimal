@@ -2,13 +2,12 @@ package com.example.blescan
 
 import android.content.Intent
 import android.graphics.Color
-import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.util.TypedValue
 import android.view.Gravity
-import android.view.View
+import android.view.animation.AlphaAnimation
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -16,84 +15,72 @@ import androidx.appcompat.app.AppCompatActivity
 
 class SplashActivity : AppCompatActivity() {
 
-    // Show for ~6 seconds as requested
-    private val SPLASH_MS = 6000L
+    private val SPLASH_MS = 6000L    // 6 seconds
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // --- Background: Neon Battery Blue-Green (dark navy → black gradient) ---
-        val bg = GradientDrawable(
-            GradientDrawable.Orientation.TOP_BOTTOM,
-            intArrayOf(Color.parseColor("#0B1220"), Color.parseColor("#05080F"))
-        )
-        bg.gradientType = GradientDrawable.LINEAR_GRADIENT
-
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
-            background = bg
+            setBackgroundColor(Color.WHITE)   // white BG
             setPadding(dp(24), dp(36), dp(24), dp(24))
         }
 
-        // Logo (medium top)
+        val fade = AlphaAnimation(0f, 1f).apply { duration = 1200 }
+
         val logo = ImageView(this).apply {
-            // Ensure you have app/src/main/res/drawable/logo.png (or vector)
             setImageResource(R.drawable.logo)
             adjustViewBounds = true
             scaleType = ImageView.ScaleType.FIT_CENTER
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
-                dp(160) // medium height
-            ).apply {
-                bottomMargin = dp(24)
-            }
+                dp(160)
+            )
+            startAnimation(fade)
         }
 
-        // Title lines with neon glow
-        val line1 = neonText("Lithium Ion Technology", 20f, "#A7F3D0")  // mint
-        val line2 = neonText("Power On Forever", 32f, "#22D3EE")         // cyan (bigger)
-        val line3 = neonText("by Amitis Battery", 18f, "#86EFAC")        // green
+        val t1 = neon("Lithium Ion Technology", 20f, "#0F172A", fade)
+        val t2 = neon("Power On Forever", 32f, "#2563EB", fade)
+        val t3 = neon("by Amitis Battery", 18f, "#475569", fade)
 
-        // extra spacing
-        val spacer1 = View(this).apply { layoutParams = LinearLayout.LayoutParams(0, dp(6)) }
-        val spacer2 = View(this).apply { layoutParams = LinearLayout.LayoutParams(0, dp(14)) }
+        val website = TextView(this).apply {
+            text = "https://amitisbattery.com"
+            setTextColor(Color.parseColor("#374151"))
+            textSize = 14f
+            gravity = Gravity.CENTER_HORIZONTAL
+            setPadding(0, dp(12), 0, 0)
+            startAnimation(fade)
+        }
 
         root.addView(logo)
-        root.addView(spacer1)
-        root.addView(line1)
-        root.addView(spacer2)
-        root.addView(line2)
-        root.addView(line3)
+        root.addView(space(8))
+        root.addView(t1)
+        root.addView(space(14))
+        root.addView(t2)
+        root.addView(t3)
+        root.addView(website)
 
         setContentView(root)
 
-        // Continue to ScanActivity after delay
         Handler(Looper.getMainLooper()).postDelayed({
             startActivity(Intent(this, ScanActivity::class.java))
             finish()
         }, SPLASH_MS)
     }
 
-    private fun neonText(text: String, sp: Float, colorHex: String): TextView {
+    private fun neon(txt:String, sp:Float, color:String, fade:AlphaAnimation):TextView {
         return TextView(this).apply {
-            this.text = text
-            setTextColor(Color.parseColor(colorHex))
+            text = txt
+            setTextColor(Color.parseColor(color))
             setTextSize(TypedValue.COMPLEX_UNIT_SP, sp)
-            // Subtle neon glow
-            setShadowLayer(12f, 0f, 0f, adjustAlpha(Color.parseColor(colorHex), 0.55f))
+            setShadowLayer(12f, 0f, 0f, Color.parseColor("#8899AA"))
             gravity = Gravity.CENTER_HORIZONTAL
+            startAnimation(fade)
         }
     }
 
-    private fun dp(v: Int): Int =
-        TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, v.toFloat(), resources.displayMetrics).toInt()
-
-    private fun adjustAlpha(color: Int, factor: Float): Int {
-        val a = (Color.alpha(color) * factor).toInt()
-        val r = Color.red(color)
-        val g = Color.green(color)
-        val b = Color.blue(color)
-        return Color.argb(a, r, g, b)
-    }
+    private fun space(h:Int)=TextView(this).apply{height=dp(h)}
+    private fun dp(v:Int)=TypedValue.applyDimension(
+        TypedValue.COMPLEX_UNIT_DIP,v.toFloat(),resources.displayMetrics).toInt()
 }
