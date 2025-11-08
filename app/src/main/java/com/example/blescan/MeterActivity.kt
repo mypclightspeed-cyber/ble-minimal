@@ -8,40 +8,33 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
-import android.widget.*
 import android.view.*
+import android.widget.*
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import java.util.UUID
 import kotlin.math.*
 
-/**
- * MeterActivity (no scanner):
- * - Expects "mac" and "name" from ScanActivity
- * - Auto-connects to device, polls basic JBD/Amitis info
- * - UI: SOC half gauge + mini Voltage (left) & Current (right) + Temperature box
- */
 class MeterActivity : AppCompatActivity() {
 
-    // UUID helpers (16-bit to 128-bit)
+    // ---- UUID helpers ----
     private fun uuid16(short: String) = UUID.fromString("${short}-0000-1000-8000-00805f9b34fb")
 
-    // BLE UUIDs for Amitis/JBD
+    // ---- JBD/Amitis UUIDs ----
     private val AMITIS_SERVICE = uuid16("0000ff00")
     private val AMITIS_READ_CH = uuid16("0000ff01")
     private val AMITIS_WRITE_CH = uuid16("0000ff02")
     private val CMD_BASIC_INFO = hex("DD A5 03 00 FF FD 77")
 
-    // UI
-    private lateinit var tvTitle: TextView
+    // ---- UI refs ----
     private lateinit var tvDevice: TextView
     private lateinit var tvTemp: TextView
-    private lateinit var gaugeSOC: ModernHalfGauge
-    private lateinit var miniVolt: MiniGauge
-    private lateinit var miniCurr: MiniGauge
+    private lateinit var socGauge: ModernHalfGauge
+    private lateinit var vGauge: MiniGauge
+    private lateinit var aGauge: MiniGauge
 
-    // BLE state
+    // ---- BLE ----
     private var gatt: BluetoothGatt? = null
     private var chNotify: BluetoothGattCharacteristic? = null
     private var chWrite: BluetoothGattCharacteristic? = null
@@ -54,14 +47,14 @@ class MeterActivity : AppCompatActivity() {
     private val pollMs = 1000L
     private val pollTask = object : Runnable {
         override fun run() {
-            val w = chWrite
             val g = gatt
-            if (w != null && g != null) {
+            val w = chWrite
+            if (g != null && w != null) {
                 try {
                     w.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
                     w.value = CMD_BASIC_INFO
                     g.writeCharacteristic(w)
-                } catch (_: SecurityException) {}
+                } catch (_: SecurityException) { /* permission missing */ }
             }
             handler.postDelayed(this, pollMs)
         }
@@ -70,39 +63,43 @@ class MeterActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // ---------- Layout (programmatic, no XML) ----------
-        tvTitle = TextView(this).apply {
+        // ---------- Layout (programmatic) ----------
+        val title = TextView(this).apply {
             text = "Amitis BMS"
             textSize = 20f
             setTypeface(typeface, Typeface.BOLD)
             setTextColor(Color.parseColor("#111827"))
         }
         tvDevice = TextView(this).apply {
-            text = "-"
+            text = "Device: -"
             textSize = 16f
             setTextColor(Color.parseColor("#374151"))
         }
 
-        gaugeSOC = ModernHalfGauge(this).apply {
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, 380
-            ).apply { setMargins(12, 8, 12, 8) }
+        // Mini gauges (left: V, right: A)
+        vGauge = MiniGauge(this).apply {
+            setTitle("V"); setUnit("V"); setRange(0.0, 60.0)
+        }
+        aGauge = MiniGauge(this).apply {
+            setTitle("A"); setUnit("A"); setRange(-200.0, 200.0)
+        }
+
+        // Main SOC half gauge
+        socGauge = ModernHalfGauge(this).apply {
             setLabel("SOC")
             setPercent(0)
         }
 
-        miniVolt = MiniGauge(this).apply {
-            setTitle("V"); setUnit("V"); setRange(0.0, 60.0)
-        }
-        miniCurr = MiniGauge(this).apply {
-            setTitle("A"); setUnit("A"); setRange(-200.0, 200.0)
-        }
-        val miniRow = LinearLayout(this).apply {
+        // A row with mini gauges and the main SOC in the middle
+        val threeCol = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            addView(miniVolt, LinearLayout.LayoutParams(0, 200, 1f).apply { setMargins(8, 8, 8, 0) })
-            addView(miniCurr, LinearLayout.LayoutParams(0, 200, 1f).apply { setMargins(8, 8, 8, 0) })
+            weightSum = 10f
+            addView(vGauge, LinearLayout.LayoutParams(0, 220, 3f).apply { setMargins(8, 8, 8, 8) })
+            addView(socGauge, LinearLayout.LayoutParams(0, 320, 4f).apply { setMargins(8, 8, 8, 8) })
+            addView(aGauge, LinearLayout.LayoutParams(0, 220, 3f).apply { setMargins(8, 8, 8, 8) })
         }
 
+        // Temperature box
         tvTemp = TextView(this).apply {
             text = "Temperature: -"
             textSize = 18f
@@ -110,29 +107,17 @@ class MeterActivity : AppCompatActivity() {
             setPadding(22, 16, 22, 16)
             setBackgroundColor(Color.parseColor("#8B5CF6"))
         }
-        val deviceBox = TextView(this).apply {
-            text = "Device: -"
-            id = View.generateViewId()
-            textSize = 16f
-            setTextColor(Color.WHITE)
-            setPadding(22, 16, 22, 16)
-            setBackgroundColor(Color.parseColor("#3B82F6"))
-        }
 
         val root = ScrollView(this).apply {
             addView(LinearLayout(this@MeterActivity).apply {
                 orientation = LinearLayout.VERTICAL
                 setPadding(16, 16, 16, 16)
-                addView(tvTitle)
+                addView(title)
                 addView(tvDevice)
-                addView(miniRow)
-                addView(gaugeSOC)
+                addView(threeCol)
                 addView(tvTemp, LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
-                ).apply { setMargins(12, 8, 12, 4) })
-                addView(deviceBox, LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
-                ).apply { setMargins(12, 4, 12, 12) })
+                ).apply { setMargins(8, 4, 8, 8) })
             })
         }
         setContentView(root)
@@ -141,10 +126,8 @@ class MeterActivity : AppCompatActivity() {
         val mac  = intent.getStringExtra("mac")
         val name = intent.getStringExtra("name") ?: "Unknown"
         tvDevice.text = "Device: $name ($mac)"
+        if (mac.isNullOrBlank()) { toast("No device MAC provided"); finish(); return }
 
-        if (mac.isNullOrBlank()) {
-            toast("No device MAC provided"); finish(); return
-        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
             ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT)
             != PackageManager.PERMISSION_GRANTED) {
@@ -211,7 +194,7 @@ class MeterActivity : AppCompatActivity() {
         }
     }
 
-    // ---------- JBD/Amitis frame parse ----------
+    // ---------- Parse JBD/Amitis "basic info" ----------
     private fun onAmitisBytes(chunk: ByteArray) {
         synchronized(rx) {
             chunk.forEach { rx.add(it) }
@@ -263,14 +246,14 @@ class MeterActivity : AppCompatActivity() {
         }
 
         runOnUiThread {
-            gaugeSOC.setPercent(soc)
-            miniVolt.setValue(voltage)
-            miniCurr.setValue(current)
+            socGauge.setPercent(soc)
+            vGauge.setValue(voltage)
+            aGauge.setValue(current)
             tvTemp.text = if (tempC != null) "Temperature: %.1f °C".format(tempC) else "Temperature: -"
         }
     }
 
-    // ---------- Utils ----------
+    // ---- Utils ----
     private fun hex(s: String): ByteArray =
         s.split(Regex("\\s+")).filter { it.isNotBlank() }.map { it.toInt(16).toByte() }.toByteArray()
     private fun toast(s: String) = runOnUiThread { Toast.makeText(this, s, Toast.LENGTH_SHORT).show() }
@@ -313,7 +296,7 @@ class MeterActivity : AppCompatActivity() {
             typeface = Typeface.create(Typeface.DEFAULT_BOLD, Typeface.BOLD)
         }
         private val textLabel = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.parseColor("#374151"); textAlign = Paint.Align.CENTER; textSize = 28f
+            color = Color.parseColor("#374151"); textAlign = Paint.Align.CENTER; textSize = 26f
         }
 
         fun setPercent(v: Int) { pct = v.coerceIn(0,100); invalidate() }
@@ -321,12 +304,12 @@ class MeterActivity : AppCompatActivity() {
 
         override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
             val w = MeasureSpec.getSize(widthMeasureSpec)
-            val h = max((w * 0.52f).roundToInt(), 240)
+            val h = max((w * 0.44f).roundToInt(), 240)
             setMeasuredDimension(w, h)
         }
 
         override fun onDraw(c: Canvas) {
-            val pad = 32f
+            val pad = 24f
             val w = width.toFloat(); val h = height.toFloat()
             val size = min(w - pad*2, h*2 - pad*2)
             val rect = RectF((w - size)/2f, pad, (w + size)/2f, pad + size)
@@ -339,12 +322,14 @@ class MeterActivity : AppCompatActivity() {
             val sweep = total * (pct / 100f)
             c.drawArc(rect, start, sweep, false, progress)
 
-            // Ticks (0,25,50,75,100 bold for 0,50,100)
+            // Ticks (0,25,50,75,100), bold 0/50/100 and also 25/75 requested
+            val marksBold = setOf(0,25,50,75,100)
             for (i in 0..10) {
-                val a = Math.toRadians((start + total * (i/10f)).toDouble())
+                val m = i*10
+                val a = Math.toRadians((start + total * (m/100f)).toDouble())
                 val rOut = rect.width()/2f
-                val rIn = rOut - when (i) { 0,5,10 -> 26f; 2,8 -> 22f; else -> 18f }
-                val paint = when (i) { 0,5,10 -> tickBold; 2,8 -> tickBold; else -> tick }
+                val rIn = rOut - (if (m in marksBold) 26f else 18f)
+                val paint = if (m in marksBold) tickBold else tick
                 val cx = rect.centerX(); val cy = rect.centerY()
                 val sx = (cx + rIn  * cos(a)).toFloat(); val sy = (cy + rIn  * sin(a)).toFloat()
                 val ex = (cx + rOut * cos(a)).toFloat(); val ey = (cy + rOut * sin(a)).toFloat()
@@ -367,19 +352,19 @@ class MeterActivity : AppCompatActivity() {
             val marks = listOf(0,25,50,75,100)
             for (m in marks) {
                 val a = Math.toRadians((start + total * (m/100f)).toDouble())
-                val rr = rect.width()/2f + 22f
+                val rr = rect.width()/2f + 20f
                 val x = (cx + rr * cos(a)).toFloat(); val y = (cy + rr * sin(a)).toFloat()
                 c.drawText("${m}%", x, y, textLabel)
             }
 
-            // Center texts: "SOC" and percent
-            val gap = 44f
+            // Center texts
+            val gap = 40f
             val socT = label; val pctT = "$pct%"
             val socW = socPaint.measureText(socT); val pctW = pctPaint.measureText(pctT)
             val totalW = socW + gap + pctW
-            val y = rect.centerY() - rect.height()*0.18f
+            val y0 = rect.centerY() - rect.height()*0.18f
+            val fm = socPaint.fontMetrics; val baseline = y0 - (fm.ascent + fm.descent)/2f
             val startX = (w - totalW)/2f
-            val fm = socPaint.fontMetrics; val baseline = y - (fm.ascent + fm.descent)/2f
             c.drawText(socT, startX, baseline, socPaint)
             c.drawText(pctT, startX + socW + gap, baseline, pctPaint)
         }
@@ -406,7 +391,7 @@ class MeterActivity : AppCompatActivity() {
                 color = Color.parseColor("#111827"); textAlign = Paint.Align.CENTER; textSize = 22f; typeface = Typeface.DEFAULT_BOLD
             }
             override fun onDraw(c: Canvas) {
-                val pad = 16f
+                val pad = 14f
                 val w = width.toFloat(); val h = height.toFloat()
                 val size = kotlin.math.min(w, h) - pad*2
                 val rect = RectF((w - size)/2f, pad, (w + size)/2f, pad + size)
