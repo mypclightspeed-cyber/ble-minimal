@@ -107,7 +107,7 @@ class MainActivity : AppCompatActivity() {
         btnScan = Button(this).apply { text = "Start Scan (20s)" }
         list = ListView(this)
 
-        // Gauge style 3: modern automotive half-circle
+        // Gauge style 3 (modern half-circle), A3 sweep (140°), start at left horizon (180°), B1 radius shrink (0.75)
         gauge = ModernHalfGauge(this).apply {
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 380
@@ -136,7 +136,7 @@ class MainActivity : AppCompatActivity() {
             }
             val valueTv = TextView(this).apply {
                 text = "-"
-                textSize = 26f // one step smaller; NOT bold
+                textSize = 26f // NOT bold
                 setTextColor(Color.WHITE)
             }
             card.addView(titleTv); card.addView(valueTv)
@@ -422,44 +422,47 @@ class MainActivity : AppCompatActivity() {
         super.onDestroy()
     }
 
-    // ===== Gauge Style 3: Modern automotive half-circle (clean track, bold ticks, red pointer) =====
+    // ===== Gauge Style 3 (Modern half-circle): A3 sweep 140°, start at 180°, radius shrink 0.75, red pointer, bigger SOC font =====
     class ModernHalfGauge(context: Context) : View(context) {
         private var pct = 0
         private var label = "SOC"
 
+        // B1: radius shrink factor
+        private val radiusScale = 0.75f
+
         private val track = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.parseColor("#E5E7EB") // gray-200
             style = Paint.Style.STROKE
-            strokeWidth = 34f
+            strokeWidth = 30f
             strokeCap = Paint.Cap.ROUND
         }
         private val progress = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             style = Paint.Style.STROKE
-            strokeWidth = 34f
+            strokeWidth = 30f
             strokeCap = Paint.Cap.ROUND
         }
         private val tick = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.parseColor("#9CA3AF")
             style = Paint.Style.STROKE
-            strokeWidth = 4.5f
+            strokeWidth = 4f
         }
         private val tickBold = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.parseColor("#6B7280")
             style = Paint.Style.STROKE
-            strokeWidth = 6.5f
+            strokeWidth = 6f
         }
         private val pointer = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.parseColor("#EF4444") // red
             style = Paint.Style.FILL
         }
-        // Center SOC text — one size bigger than previous version
+        // Center SOC text — one step bigger than previous (42f -> 48f)
         private val textCenter = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.parseColor("#111827")
             textAlign = Paint.Align.CENTER
-            textSize = 42f
+            textSize = 48f
             typeface = Typeface.create(Typeface.DEFAULT_BOLD, Typeface.BOLD)
         }
-        // Arc labels — 2× bigger
+        // Arc labels — large
         private val textLabel = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.parseColor("#374151")
             textAlign = Paint.Align.CENTER
@@ -471,24 +474,24 @@ class MainActivity : AppCompatActivity() {
 
         override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
             val w = MeasureSpec.getSize(widthMeasureSpec)
-            val h = max((w * 0.6f).roundToInt(), 270)
+            val h = max((w * 0.55f).roundToInt(), 260)
             setMeasuredDimension(w, h)
         }
-
         override fun onDraw(c: Canvas) {
             super.onDraw(c)
-            val pad = 40f
+            val pad = 36f
             val w = width.toFloat()
             val h = height.toFloat()
-            val size = min(w - pad * 2, h * 2.0f - pad * 2)
+            val baseSize = min(w - pad * 2, h * 2.0f - pad * 2)
+            val size = baseSize * radiusScale  // B1 shrink
             val rect = RectF(
-                (w - size) / 2f, pad,
-                (w + size) / 2f, pad + size
+                (w - size) / 2f, pad + (baseSize - size) / 2f,
+                (w + size) / 2f, pad + (baseSize - size) / 2f + size
             )
 
-            // Clean modern sweep: 160° span (from 200° to 340°) to look like automotive cluster
-            val startAngle = 200f
-            val sweepTotal = 160f
+            // A3: sweep 140°, start at left horizon (180°), clockwise
+            val startAngle = 180f
+            val sweepTotal = 140f
 
             // track
             c.drawArc(rect, startAngle, sweepTotal, false, track)
@@ -496,7 +499,7 @@ class MainActivity : AppCompatActivity() {
             // ticks (bold at 0/50/100, thin each 10%)
             drawTicks(c, rect, startAngle, sweepTotal)
 
-            // progress gradient (teal -> level color)
+            // progress gradient
             val levelColor = when {
                 pct >= 80 -> Color.parseColor("#22C55E")
                 pct >= 30 -> Color.parseColor("#F59E0B")
@@ -514,20 +517,20 @@ class MainActivity : AppCompatActivity() {
             // pointer
             drawPointer(c, rect, startAngle + sweep)
 
-            // labels at 0/25/50/75/100 — bigger
+            // labels at 0/25/50/75/100
             drawLabels(c, rect, startAngle, sweepTotal)
 
             // center: "SOC 85%"
             val cy = rect.centerY()
-            c.drawText("$label  $pct%", w / 2f, cy + 24f, textCenter)
+            c.drawText("$label  $pct%", w / 2f, cy + 20f, textCenter)
         }
 
         private fun drawTicks(c: Canvas, rect: RectF, start: Float, sweep: Float) {
             val cx = rect.centerX()
             val cy = rect.centerY()
             val rOuter = rect.width() / 2f
-            val rInnerThin = rOuter - 20f
-            val rInnerBold = rOuter - 28f
+            val rInnerThin = rOuter - 18f
+            val rInnerBold = rOuter - 26f
 
             for (i in 0..10) {
                 val ang = Math.toRadians((start + sweep * (i / 10f)).toDouble())
@@ -544,7 +547,7 @@ class MainActivity : AppCompatActivity() {
         private fun drawLabels(c: Canvas, rect: RectF, start: Float, sweep: Float) {
             val cx = rect.centerX()
             val cy = rect.centerY()
-            val r = rect.width() / 2f + 28f
+            val r = rect.width() / 2f + 24f
             val marks = listOf(0, 25, 50, 75, 100)
             for (m in marks) {
                 val a = Math.toRadians((start + sweep * (m / 100f)).toDouble())
@@ -578,3 +581,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 }
+
+
+        
