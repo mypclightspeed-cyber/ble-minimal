@@ -442,7 +442,7 @@ runOnUiThread {
         super.onDestroy()
     }
 
-    // ===== Gauge Style 3 (Modern half-circle): A1 sweep 180°, start at 180°, radius shrink 0.75, red pointer, blue SOC text upper-middle =====
+    // ===== Gauge Style 3 (Modern half-circle): A1 sweep 180°, start at 180°, radius shrink 0.75, red pointer with glowing red shadow, blue SOC text upper-middle =====
     class ModernHalfGauge(context: Context) : View(context) {
         private var pct = 0
         private var label = "SOC"
@@ -472,8 +472,14 @@ runOnUiThread {
             strokeWidth = 6f
         }
         private val pointer = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.parseColor("#EF4444") // red
+            color = Color.parseColor("#EF4444") // bright red
             style = Paint.Style.FILL
+        }
+        // Glowing red shadow paint for pointer
+        private val pointerGlow = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#80EF4444") // semi-transparent red
+            style = Paint.Style.FILL
+            setShadowLayer(25f, 0f, 0f, Color.parseColor("#FFEF4444")) // Strong red glow
         }
         // SOC text — bigger and blue, drawn upper-middle with extra gap
         private val socPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -541,8 +547,14 @@ runOnUiThread {
             val sweep = sweepTotal * (pct / 100f)
             c.drawArc(rect, startAngle, sweep, false, progress)
 
-            // pointer
+            // Enable shadow layer for glowing red effect
+            setLayerType(LAYER_TYPE_SOFTWARE, pointerGlow)
+            
+            // pointer with glowing red shadow
             drawPointer(c, rect, startAngle + sweep)
+
+            // Disable shadow layer after drawing pointer
+            setLayerType(LAYER_TYPE_HARDWARE, null)
 
             // labels at 0/25/50/75/100
             drawLabels(c, rect, startAngle, sweepTotal)
@@ -613,6 +625,11 @@ runOnUiThread {
             path.lineTo(b1x, b1y)
             path.lineTo(b2x, b2y)
             path.close()
+            
+            // Draw glowing red shadow (same path, but the shadow layer creates the glow)
+            c.drawPath(path, pointerGlow)
+            
+            // Then draw the bright red pointer on top
             c.drawPath(path, pointer)
             c.drawCircle(cx, cy, 12f, pointer)
         }
