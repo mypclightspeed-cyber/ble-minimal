@@ -15,7 +15,7 @@ import androidx.appcompat.app.AppCompatActivity
 
 class SplashActivity : AppCompatActivity() {
 
-    private val SPLASH_MS = 4000L    // 4 seconds
+    private val SPLASH_MS = 3000L    // 6 seconds
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -27,7 +27,7 @@ class SplashActivity : AppCompatActivity() {
             setPadding(dp(24), dp(36), dp(24), dp(24))
         }
 
-        val fade = AlphaAnimation(0f, 1f).apply { duration = 3000 }
+        val fade = AlphaAnimation(0f, 1f).apply { duration = 1200 }
 
         val logo = ImageView(this).apply {
             setImageResource(R.drawable.logo)
@@ -40,7 +40,7 @@ class SplashActivity : AppCompatActivity() {
             startAnimation(fade)
         }
 
-        val t1 = neon("Lithium ion Technology", 20f, "#00A0A0", fade)
+        val t1 = neon("Lithium Ion Technology", 20f, "#0F172A", fade)
         val t2 = neon("Power On Forever", 32f, "#2563EB", fade)
         val t3 = neon("by Amitis Battery", 18f, "#475569", fade)
 
