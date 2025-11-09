@@ -34,7 +34,7 @@
         </activity>
 
         
-        <activity android:name=".MeterActivity" android:exported="false"/>
+        <activity android:name=".MeterActivity" android:exported="false" android:screenOrientation="portrait" android:configChang="orientation|screenSize|uiMode" />
 
     </application>
 
