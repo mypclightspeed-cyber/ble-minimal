@@ -64,7 +64,7 @@ class SplashActivity : AppCompatActivity() {
         setContentView(root)
 
         Handler(Looper.getMainLooper()).postDelayed({
-            startActivity(Intent(this, ScanActivity::class.java))
+            startActivity(Intent(this, meterActivity::class.java))
             finish()
         }, SPLASH_MS)
     }
