@@ -526,18 +526,17 @@ runOnUiThread {
             // ticks (bold at 0/50/100, thin each 10%)
             drawTicks(c, rect, startAngle, sweepTotal)
 
-            // progress color based on SOC
+            // progress color based on SOC - using pure solid colors
             val levelColor = when {
-                pct < 15 -> Color.parseColor("#EF4444") // red
-                pct < 30 -> Color.parseColor("#F59E0B") // yellow
-                pct <= 80 -> Color.parseColor("#22C55E") // green
-                else -> Color.parseColor("#3B82F6") // blue
+                pct < 15 -> Color.RED // Pure red
+                pct < 30 -> Color.YELLOW // Pure yellow
+                pct <= 80 -> Color.GREEN // Pure green
+                else -> Color.BLUE // Pure blue
             }
-            progress.shader = SweepGradient(
-                rect.centerX(), rect.centerY(),
-                intArrayOf(Color.parseColor("#06B6D4"), levelColor),
-                floatArrayOf(0f, 1f)
-            )
+            
+            // Use solid color without gradient
+            progress.color = levelColor
+            progress.shader = null
 
             val sweep = sweepTotal * (pct / 100f)
             c.drawArc(rect, startAngle, sweep, false, progress)
