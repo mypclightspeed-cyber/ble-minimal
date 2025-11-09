@@ -19,8 +19,9 @@ import kotlin.math.*
 
 /**
  * MeterActivity – main SOC half gauge + two mini half gauges (Voltage left, Current right).
- * Style: M1 (all gauges with a red needle pointer). No temperature shown.
+ * Style: M1 (all gauges with a red needle pointer). Adds a temperature text box above device box.
  * Expects "mac" and "name" in intent extras from ScanActivity.
+ * Temperature decoded as: ((payload[8] << 8) | payload[9]) / 10.0
  */
 class MeterActivity : AppCompatActivity() {
 
@@ -34,6 +35,7 @@ class MeterActivity : AppCompatActivity() {
     private val CMD_BASIC_INFO = hex("DD A5 03 00 FF FD 77")
 
     // ---- UI refs ----
+    private lateinit var tvTemp: TextView       // NEW: temperature box
     private lateinit var tvDevice: TextView
     private lateinit var socGauge: ModernHalfGauge
     private lateinit var vGauge: MiniNeedleGauge
@@ -75,6 +77,14 @@ class MeterActivity : AppCompatActivity() {
             setTypeface(typeface, Typeface.BOLD)
             setTextColor(Color.parseColor("#111827"))
         }
+
+        // NEW: temperature text box (placed above device box)
+        tvTemp = TextView(this).apply {
+            text = "Temp: -"
+            textSize = 16f
+            setTextColor(Color.parseColor("#374151"))
+        }
+
         tvDevice = TextView(this).apply {
             text = "Device: -"
             textSize = 16f
@@ -108,6 +118,7 @@ class MeterActivity : AppCompatActivity() {
                 orientation = LinearLayout.VERTICAL
                 setPadding(16, 16, 16, 16)
                 addView(title)
+                addView(tvTemp)    // NEW: add temp box above device
                 addView(tvDevice)
                 addView(threeCol)
             })
@@ -228,10 +239,15 @@ class MeterActivity : AppCompatActivity() {
         val current = iS / 100.0
         val soc = (p[23].toInt() and 0xFF).coerceIn(0, 100)
 
+        // NEW: temperature from payload[8..9] / 10.0
+        val tRaw = ((p[8].toInt() and 0xFF) shl 8) or (p[9].toInt() and 0xFF)
+        val temperature = tRaw / 10.0
+
         runOnUiThread {
             socGauge.setPercent(soc)
             vGauge.setValue(voltage)
             aGauge.setValue(current)
+            tvTemp.text = String.format("Temp: %.1f °C", temperature)   // NEW: show temperature
         }
     }
 
