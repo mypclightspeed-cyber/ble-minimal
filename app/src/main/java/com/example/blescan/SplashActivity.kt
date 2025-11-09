@@ -40,7 +40,7 @@ class SplashActivity : AppCompatActivity() {
             startAnimation(fade)
         }
 
-        val t1 = neon("Lithium Ion Technology", 20f, "#00A0A0", fade)
+        val t1 = neon("Lithium ion Technology", 20f, "#00A0A0", fade)
         val t2 = neon("Power On Forever", 32f, "#2563EB", fade)
         val t3 = neon("by Amitis Battery", 18f, "#475569", fade)
 
