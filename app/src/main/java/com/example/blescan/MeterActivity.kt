@@ -51,7 +51,6 @@ class MeterActivity : AppCompatActivity() {
 
     private lateinit var tvVolt: TextView
     private lateinit var tvCurr: TextView
-    private lateinit var tvTemp: TextView
     private lateinit var tvName: TextView
 
     private lateinit var adapterLv: ArrayAdapter<String>
@@ -144,11 +143,9 @@ class MeterActivity : AppCompatActivity() {
             return card to (titleTv to valueTv)
         }
 
-        val (cardTemp, pairTemp) = makeCard("Temperature (°C)", "#EF4444")
         val (cardVolt, pairVolt) = makeCard("Voltage (V)", "#10B981")
         val (cardCurr, pairCurr) = makeCard("Current (A)", "#F59E0B")
         val (cardName, pairName) = makeCard("Device",      "#3B82F6")
-        tvTemp = pairTemp.second
         tvVolt = pairVolt.second
         tvCurr = pairCurr.second
         tvName = pairName.second
@@ -162,7 +159,6 @@ class MeterActivity : AppCompatActivity() {
             addView(list, LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
             addView(gauge)          // gauge ABOVE parameters
-            addView(cardTemp)
             addView(cardVolt)
             addView(cardCurr)
             addView(cardName)
@@ -400,26 +396,10 @@ class MeterActivity : AppCompatActivity() {
         val current = iRaw / 100.0
         val soc = p[19].toInt() and 0xFF
 
-                // Temperature extraction per JBD (0x03) with null fallback
-        val dataStart = 4
-        var tempText = "null"
-        if (p.size > dataStart + 22) {
-            val ntcCount = p[dataStart + 22].toInt() and 0xFF
-            val firstTempIdx = dataStart + 23
-            if (ntcCount > 0 && p.size >= firstTempIdx + 2) {
-                val tRaw = ((p[firstTempIdx].toInt() and 0xFF) shl 8) or (p[firstTempIdx + 1].toInt() and 0xFF)
-                val tempC = (tRaw - 2731) / 10.0
-                if (!tempC.isNaN() && tempC > -100 && tempC < 200) {
-                    tempText = String.format("%.1f °C", tempC)
-                }
-            }
-        }
-
-runOnUiThread {
+        runOnUiThread {
             gauge.setPercent(soc.coerceIn(0, 100))
             tvVolt.text = String.format("%.3f V", voltage)
             tvCurr.text = String.format("%.3f A", current)
-            tvTemp.text = tempText
         }
     }
 
@@ -444,8 +424,6 @@ runOnUiThread {
 
     // ===== Gauge Style 3 (Modern half-circle): A1 sweep 180°, start at 180°, radius shrink 0.75, red pointer, blue SOC text upper-middle =====
     class ModernHalfGauge(context: Context) : View(context) {
-        init { setLayerType(LAYER_TYPE_SOFTWARE, null) }
-
         private var pct = 0
         private var label = "SOC"
 
@@ -474,7 +452,7 @@ runOnUiThread {
             strokeWidth = 6f
         }
         private val pointer = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.parseColor("#EF4444")("#EF4444") // red
+            color = Color.parseColor("#EF4444") // red
             style = Paint.Style.FILL
         
             setShadowLayer(22f, 0f, 0f, Color.parseColor("#88EF4444"))}
@@ -531,9 +509,10 @@ runOnUiThread {
 
             // progress gradient
             val levelColor = when {
-                pct >= 80 -> Color.parseColor("#22C55E")
-                pct >= 30 -> Color.parseColor("#F59E0B")
-                else      -> Color.parseColor("#EF4444")
+                pct >= 80 -> Color.parseColor("#3B82F6") // blue
+                pct >= 30 -> Color.parseColor("#22C55E") // green
+                pct >= 15 -> Color.parseColor("#EAB308") // yellow
+                else      -> Color.parseColor("#EF4444") // red
             }
             progress.shader = SweepGradient(
                 rect.centerX(), rect.centerY(),
