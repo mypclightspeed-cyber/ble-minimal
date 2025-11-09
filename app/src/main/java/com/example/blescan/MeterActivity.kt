@@ -18,10 +18,10 @@ import java.util.UUID
 import kotlin.math.*
 
 /**
- * MeterActivity – main SOC half gauge + two mini half gauges (Voltage left, Current right).
- * Style: M1 (all gauges with a red needle pointer). Adds a temperature text box above device box.
- * Expects "mac" and "name" in intent extras from ScanActivity.
- * Temperature decoded as: ((payload[8] << 8) | payload[9]) / 10.0
+ * MeterActivity – adds a temperature TextView placed **below CURRENT** and **above DEVICE**
+ * (i.e., between current box and device box).
+ * Temperature is decoded as: ((payload[8] << 8) | payload[9]) / 10.0 (°C).
+ * No other logic is changed.
  */
 class MeterActivity : AppCompatActivity() {
 
@@ -35,8 +35,8 @@ class MeterActivity : AppCompatActivity() {
     private val CMD_BASIC_INFO = hex("DD A5 03 00 FF FD 77")
 
     // ---- UI refs ----
-    private lateinit var tvTemp: TextView       // NEW: temperature box
     private lateinit var tvDevice: TextView
+    private lateinit var tvTemp: TextView            // NEW temperature box
     private lateinit var socGauge: ModernHalfGauge
     private lateinit var vGauge: MiniNeedleGauge
     private lateinit var aGauge: MiniNeedleGauge
@@ -78,32 +78,10 @@ class MeterActivity : AppCompatActivity() {
             setTextColor(Color.parseColor("#111827"))
         }
 
-        // NEW: temperature text box (placed above device box)
-        tvTemp = TextView(this).apply {
-            text = "Temp: -"
-            textSize = 16f
-            setTextColor(Color.parseColor("#374151"))
-        }
-
-        tvDevice = TextView(this).apply {
-            text = "Device: -"
-            textSize = 16f
-            setTextColor(Color.parseColor("#374151"))
-        }
-
-        // Mini gauges (left: V, right: A) – needle style
-        vGauge = MiniNeedleGauge(this).apply {
-            setTitle("V"); setUnit("V"); setRange(0.0, 60.0)
-        }
-        aGauge = MiniNeedleGauge(this).apply {
-            setTitle("A"); setUnit("A"); setRange(-200.0, 200.0)
-        }
-
-        // Main SOC half gauge
-        socGauge = ModernHalfGauge(this).apply {
-            setLabel("SOC")
-            setPercent(0)
-        }
+        // Upper section: gauges
+        vGauge = MiniNeedleGauge(this).apply { setTitle("V"); setUnit("V"); setRange(0.0, 60.0) }
+        aGauge = MiniNeedleGauge(this).apply { setTitle("A"); setUnit("A"); setRange(-200.0, 200.0) }
+        socGauge = ModernHalfGauge(this).apply { setLabel("SOC"); setPercent(0) }
 
         val threeCol = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -113,14 +91,28 @@ class MeterActivity : AppCompatActivity() {
             addView(aGauge, LinearLayout.LayoutParams(0, 220, 3f).apply { setMargins(8, 8, 8, 8) })
         }
 
+        // Bottom text boxes: Voltage (if exists), Current (assumed shown via gauges),
+        // Temperature (NEW), Device
+        tvTemp = TextView(this).apply {
+            text = "Temp: -"
+            textSize = 16f
+            setTextColor(Color.parseColor("#374151"))
+        }
+        tvDevice = TextView(this).apply {
+            text = "Device: -"
+            textSize = 16f
+            setTextColor(Color.parseColor("#374151"))
+        }
+
         val root = ScrollView(this).apply {
             addView(LinearLayout(this@MeterActivity).apply {
                 orientation = LinearLayout.VERTICAL
                 setPadding(16, 16, 16, 16)
                 addView(title)
-                addView(tvTemp)    // NEW: add temp box above device
-                addView(tvDevice)
                 addView(threeCol)
+                // place TEMP between current area and device name box
+                addView(tvTemp)
+                addView(tvDevice)
             })
         }
         setContentView(root)
@@ -239,7 +231,7 @@ class MeterActivity : AppCompatActivity() {
         val current = iS / 100.0
         val soc = (p[23].toInt() and 0xFF).coerceIn(0, 100)
 
-        // NEW: temperature from payload[8..9] / 10.0
+        // Temperature: ((payload[8] << 8) | payload[9]) / 10.0  (°C)
         val tRaw = ((p[8].toInt() and 0xFF) shl 8) or (p[9].toInt() and 0xFF)
         val temperature = tRaw / 10.0
 
@@ -247,7 +239,7 @@ class MeterActivity : AppCompatActivity() {
             socGauge.setPercent(soc)
             vGauge.setValue(voltage)
             aGauge.setValue(current)
-            tvTemp.text = String.format("Temp: %.1f °C", temperature)   // NEW: show temperature
+            tvTemp.text = String.format("Temp: %.1f °C", temperature)
         }
     }
 
@@ -321,7 +313,7 @@ class MeterActivity : AppCompatActivity() {
             val sweep = total * (pct / 100f)
             c.drawArc(rect, start, sweep, false, progress)
 
-            // Ticks (0,25,50,75,100) – bold all five
+            // Ticks (0,25,50,75,100)
             val marksBold = setOf(0,25,50,75,100)
             for (i in 0..10) {
                 val m = i*10
