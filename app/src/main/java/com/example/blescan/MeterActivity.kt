@@ -12,12 +12,12 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.ParcelUuid
 import android.provider.Settings
 import android.view.View
 import android.widget.*
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
-import androidx.cardview.widget.CardView
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import java.util.*
@@ -103,18 +103,18 @@ class MeterActivity : AppCompatActivity() {
             ).also { it.setMargins(16, 8, 16, 16) }
         }
 
-        // --- helpers to build a small colored info card ---
-        fun makeCard(title: String, color: String): Pair<CardView, Pair<TextView, TextView>> {
-            val card = CardView(this).apply {
-                radius = 22f
-                setCardBackgroundColor(Color.parseColor(color))
+        // --- helper to build a colored info box without CardView ---
+        fun makeCard(title: String, color: String): Pair<LinearLayout, Pair<TextView, TextView>> {
+            val card = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setBackgroundColor(Color.parseColor(color))
+                setPadding(24, 18, 24, 18)
                 val lp = LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT,
                     LinearLayout.LayoutParams.WRAP_CONTENT
                 )
                 lp.setMargins(16, 10, 16, 10)
                 layoutParams = lp
-                elevation = 6f
             }
             val titleTv = TextView(this).apply {
                 text = title
@@ -127,7 +127,8 @@ class MeterActivity : AppCompatActivity() {
                 textSize = 26f // NOT bold
                 setTextColor(Color.WHITE)
             }
-            card.addView(titleTv); card.addView(valueTv)
+            card.addView(titleTv)
+            card.addView(valueTv)
             return card to (titleTv to valueTv)
         }
 
