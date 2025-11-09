@@ -142,7 +142,6 @@ class MeterActivity : AppCompatActivity() {
             card.addView(titleTv); card.addView(valueTv)
             return card to (titleTv to valueTv)
         }
-
         val (cardVolt, pairVolt) = makeCard("Voltage (V)", "#10B981")
         val (cardCurr, pairCurr) = makeCard("Current (A)", "#F59E0B")
         val (cardName, pairName) = makeCard("Device",      "#3B82F6")
@@ -396,9 +395,10 @@ class MeterActivity : AppCompatActivity() {
         val current = iRaw / 100.0
         val soc = p[19].toInt() and 0xFF
 
-                // Temperature extraction with null fallback (JBD NTC layout)
+                // Temperature extraction per JBD (0x03) with null fallback
         val dataStart = 4
         var tempText = "null"
+        var tempVal: Double? = null
         if (p.size > dataStart + 22) {
             val ntcCount = p[dataStart + 22].toInt() and 0xFF
             val firstTempIdx = dataStart + 23
@@ -407,12 +407,14 @@ class MeterActivity : AppCompatActivity() {
                 val tempC = (tRaw - 2731) / 10.0
                 if (!tempC.isNaN() && tempC > -100 && tempC < 200) {
                     tempText = String.format("%.1f °C", tempC)
+                    tempVal = tempC
                 }
             }
         }
 
 runOnUiThread {
             gauge.setPercent(soc.coerceIn(0, 100))
+            gauge.setTemperature(tempVal)
             tvVolt.text = String.format("%.3f V", voltage)
             tvCurr.text = String.format("%.3f A", current)
         }
@@ -439,6 +441,12 @@ runOnUiThread {
 
     // ===== Gauge Style 3 (Modern half-circle): A1 sweep 180°, start at 180°, radius shrink 0.75, red pointer, blue SOC text upper-middle =====
     class ModernHalfGauge(context: Context) : View(context) {
+        init { setLayerType(LAYER_TYPE_SOFTWARE, null) }
+
+        // temperature (°C) for mini gauge
+        private var tempC: Double? = null
+        fun setTemperature(t: Double?) { tempC = t; invalidate() }
+
         private var pct = 0
         private var label = "SOC"
 
@@ -526,7 +534,93 @@ runOnUiThread {
                 pct >= 80 -> Color.parseColor("#22C55E")
                 pct >= 30 -> Color.parseColor("#F59E0B")
                 else      -> Color.parseColor("#EF4444")
+            
+            // --- mini temperature gauge (lower-right) ---
+            tempC?.let { t0 ->
+                val tMin = -5.0
+                val tMax = 95.0
+                val t = t0.coerceIn(tMin, tMax)
+                val tp = ((t - tMin) / (tMax - tMin)).toFloat() // 0..1
+
+                // size & position
+                val gSize = minOf(w.toFloat(), h.toFloat()) * 0.38f
+                val right = w - 20f
+                val bottom = h - 12f
+                val left = right - gSize
+                val top = bottom - gSize
+                val small = RectF(left, top, right, bottom)
+
+                // background fill (subtle blue gradient look via two arcs)
+                val tempTrack = Paint(trackPaint)
+                tempTrack.color = Color.parseColor("#1B2A49") // deep blue
+                c.drawArc(small, 180f, 180f, false, tempTrack)
+
+                // temp arc color: blue(<30), green(30-90), red(>90)
+                val therm = Paint(arcPaint)
+                therm.color = when {
+                    t < 30 -> Color.parseColor("#3B82F6")
+                    t < 90 -> Color.parseColor("#22C55E")
+                    else -> Color.parseColor("#EF4444")
+                }
+                c.drawArc(small, 180f, 180f * tp, false, therm)
+
+                // ticks at C and H
+                val tick = Paint(tickPaint)
+                tick.strokeWidth = 3f
+                fun tickAt(pct: Float) {
+                    val ang = Math.toRadians((180 + 180 * pct).toDouble())
+                    val R = (small.right - small.left) / 2f
+                    val cx2 = (small.left + small.right) / 2f
+                    val cy2 = (small.top + small.bottom) / 2f
+                    val rOuter = R - 5f
+                    val rInner = rOuter - 16f
+                    val x1 = (cx2 + rOuter * Math.cos(ang)).toFloat()
+                    val y1 = (cy2 + rOuter * Math.sin(ang)).toFloat()
+                    val x2 = (cx2 + rInner * Math.cos(ang)).toFloat()
+                    val y2 = (cy2 + rInner * Math.sin(ang)).toFloat()
+                    c.drawLine(x1, y1, x2, y2, tick)
+                }
+                tickAt(0f); tickAt(1f)
+
+                // pointer (red with stronger glow)
+                val needle = Paint(pointer)
+                needle.color = Color.parseColor("#EF4444")
+                needle.setShadowLayer(20f, 0f, 0f, Color.parseColor("#99EF4444"))
+                val ang = Math.toRadians((180 + 180 * tp).toDouble())
+                val R = (small.right - small.left) / 2f
+                val cx2 = (small.left + small.right) / 2f
+                val cy2 = (small.top + small.bottom) / 2f
+                val tipX = (cx2 + (R - 18f) * Math.cos(ang)).toFloat()
+                val tipY = (cy2 + (R - 18f) * Math.sin(ang)).toFloat()
+                val back = 24f
+                val baseW = 9f
+                val perp = ang + Math.PI / 2
+                val b1x = (cx2 - back * Math.cos(ang) + baseW * Math.cos(perp)).toFloat()
+                val b1y = (cy2 - back * Math.sin(ang) + baseW * Math.sin(perp)).toFloat()
+                val b2x = (cx2 - back * Math.cos(ang) - baseW * Math.cos(perp)).toFloat()
+                val b2y = (cy2 - back * Math.sin(ang) - baseW * Math.sin(perp)).toFloat()
+                val pth = Path()
+                pth.moveTo(tipX, tipY)
+                pth.lineTo(b1x, b1y)
+                pth.lineTo(b2x, b2y)
+                pth.close()
+                c.drawPath(pth, needle)
+
+                // Labels C / H
+                val lbl = Paint(textPaint)
+                lbl.textSize = 20f
+                lbl.alpha = 220
+                c.drawText("C", left + 12f, bottom - 10f, lbl)
+                c.drawText("H", right - 18f, bottom - 10f, lbl)
+
+                // center number
+                val mid = Paint(textPaint)
+                mid.textSize = 24f
+                mid.alpha = 230
+                val num = String.format("%.0f", t)
+                c.drawText(num, (small.left + small.right) / 2f, (small.top + small.bottom) / 2f + 8f, mid)
             }
+    }
             progress.shader = SweepGradient(
                 rect.centerX(), rect.centerY(),
                 intArrayOf(Color.parseColor("#06B6D4"), levelColor),
