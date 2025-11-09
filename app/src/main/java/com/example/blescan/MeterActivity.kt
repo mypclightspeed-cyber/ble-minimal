@@ -454,10 +454,11 @@ class MeterActivity : AppCompatActivity() {
             strokeWidth = 6f
         }
         private val pointer = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.parseColor("#EF4444")("#EF4444") // red
+            color = Color.parseColor("#EF4444") // red
             style = Paint.Style.FILL
         
-            setShadowLayer(14f, 0f, 0f, Color.parseColor("#55EF4444"))}
+            setShadowLayer(14f, 0f, 0f, Color.parseColor("#55EF4444"))
+        }
         // SOC text — bigger and blue, drawn upper-middle with extra gap
         private val socPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.parseColor("#2563EB") // blue
