@@ -51,7 +51,6 @@ class MeterActivity : AppCompatActivity() {
 
     private lateinit var tvVolt: TextView
     private lateinit var tvCurr: TextView
-    private lateinit var tvTemp: TextView
     private lateinit var tvName: TextView
 
     private lateinit var adapterLv: ArrayAdapter<String>
@@ -144,11 +143,9 @@ class MeterActivity : AppCompatActivity() {
             return card to (titleTv to valueTv)
         }
 
-        val (cardTemp, pairTemp) = makeCard("Temperature (°C)", "#EF4444")
         val (cardVolt, pairVolt) = makeCard("Voltage (V)", "#10B981")
         val (cardCurr, pairCurr) = makeCard("Current (A)", "#F59E0B")
         val (cardName, pairName) = makeCard("Device",      "#3B82F6")
-        tvTemp = pairTemp.second
         tvVolt = pairVolt.second
         tvCurr = pairCurr.second
         tvName = pairName.second
@@ -162,7 +159,6 @@ class MeterActivity : AppCompatActivity() {
             addView(list, LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
             addView(gauge)          // gauge ABOVE parameters
-            addView(cardTemp)
             addView(cardVolt)
             addView(cardCurr)
             addView(cardName)
@@ -400,21 +396,24 @@ class MeterActivity : AppCompatActivity() {
         val current = iRaw / 100.0
         val soc = p[19].toInt() and 0xFF
 
-        // Temperature extraction with null fallback
+                // Temperature extraction per JBD protocol (0x03 frame)
+        val dataStart = 4
         var tempText = "null"
-        if (p.size > 0x19) {
-            val rawTemp = ((p[0x18].toInt() and 0xFF) shl 8) or (p[0x19].toInt() and 0xFF)
-            val tempC = (rawTemp / 10.0) - 273.1
-            if (!tempC.isNaN() && tempC > -100 && tempC < 200) {
+        if (p.size > dataStart + 22) {
+            val ntcCount = p[dataStart + 22].toInt() and 0xFF
+            val firstTempIdx = dataStart + 23
+            if (ntcCount > 0 && p.size >= firstTempIdx + 2) {
+                val tRaw = ((p[firstTempIdx].toInt() and 0xFF) shl 8) or (p[firstTempIdx + 1].toInt() and 0xFF)
+                val tempC = (tRaw - 2731) / 10.0
                 tempText = String.format("%.1f °C", tempC)
             }
         }
 
-        runOnUiThread {
+runOnUiThread {
             gauge.setPercent(soc.coerceIn(0, 100))
             tvVolt.text = String.format("%.3f V", voltage)
-            tvCurr.text = String.format("%.3f A", current)
             tvTemp.text = tempText
+            tvCurr.text = String.format("%.3f A", current)
         }
     }
 
