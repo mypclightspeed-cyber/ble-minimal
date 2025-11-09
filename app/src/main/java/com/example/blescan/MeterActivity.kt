@@ -48,6 +48,7 @@ class MeterActivity : AppCompatActivity() {
     private lateinit var btnScan: Button
     private lateinit var list: ListView
     private lateinit var gauge: ModernHalfGauge
+    private lateinit var tempGauge: TemperatureGauge
 
     private lateinit var tvVolt: TextView
     private lateinit var tvCurr: TextView
@@ -108,13 +109,21 @@ class MeterActivity : AppCompatActivity() {
         btnScan = Button(this).apply { text = "Start Scan (20s)" }
         list = ListView(this)
 
-        // Gauge style 3 (modern half-circle) with A1: 180° sweep, start at 180°
+        // SOC Gauge
         gauge = ModernHalfGauge(this).apply {
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 380
             ).apply { setMargins(16, 10, 16, 6) }
             setLabel("SOC")
             setPercent(0)
+        }
+
+        // Temperature Gauge - classic automobile style
+        tempGauge = TemperatureGauge(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, 380
+            ).apply { setMargins(16, 10, 16, 6) }
+            setTemperature(0f)
         }
 
         fun makeCard(title: String, colorHex: String): Pair<LinearLayout, Pair<TextView, TextView>> {
@@ -144,11 +153,9 @@ class MeterActivity : AppCompatActivity() {
             return card to (titleTv to valueTv)
         }
 
-        val (cardTemp, pairTemp) = makeCard("Temperature (°C)", "#EF4444")
         val (cardVolt, pairVolt) = makeCard("Voltage (V)", "#10B981")
         val (cardCurr, pairCurr) = makeCard("Current (A)", "#F59E0B")
         val (cardName, pairName) = makeCard("Device",      "#3B82F6")
-        tvTemp = pairTemp.second
         tvVolt = pairVolt.second
         tvCurr = pairCurr.second
         tvName = pairName.second
@@ -161,8 +168,8 @@ class MeterActivity : AppCompatActivity() {
             addView(btnScan)
             addView(list, LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
-            addView(gauge)          // gauge ABOVE parameters
-            addView(cardTemp)
+            addView(gauge)          // SOC gauge
+            addView(tempGauge)      // Temperature gauge
             addView(cardVolt)
             addView(cardCurr)
             addView(cardName)
@@ -280,6 +287,7 @@ class MeterActivity : AppCompatActivity() {
         // reset on each new scan
         devices.clear(); rows.clear(); adapterLv.clear(); advertisedName.clear()
         gauge.setPercent(0)
+        tempGauge.setTemperature(0f)
         tvVolt.text = "-"
         tvCurr.text = "-"
         tvName.text = ""
@@ -400,9 +408,9 @@ class MeterActivity : AppCompatActivity() {
         val current = iRaw / 100.0
         val soc = p[19].toInt() and 0xFF
 
-                // Temperature extraction per JBD (0x03) with null fallback
+        // Temperature extraction per JBD (0x03) with null fallback
         val dataStart = 4
-        var tempText = "null"
+        var temperature = 0f
         if (p.size > dataStart + 22) {
             val ntcCount = p[dataStart + 22].toInt() and 0xFF
             val firstTempIdx = dataStart + 23
@@ -410,16 +418,16 @@ class MeterActivity : AppCompatActivity() {
                 val tRaw = ((p[firstTempIdx].toInt() and 0xFF) shl 8) or (p[firstTempIdx + 1].toInt() and 0xFF)
                 val tempC = (tRaw - 2731) / 10.0
                 if (!tempC.isNaN() && tempC > -100 && tempC < 200) {
-                    tempText = String.format("%.1f °C", tempC)
+                    temperature = tempC.toFloat()
                 }
             }
         }
 
-runOnUiThread {
+        runOnUiThread {
             gauge.setPercent(soc.coerceIn(0, 100))
+            tempGauge.setTemperature(temperature)
             tvVolt.text = String.format("%.3f V", voltage)
             tvCurr.text = String.format("%.3f A", current)
-            tvTemp.text = tempText
         }
     }
 
@@ -632,6 +640,202 @@ runOnUiThread {
             // Then draw the bright red pointer on top
             c.drawPath(path, pointer)
             c.drawCircle(cx, cy, 12f, pointer)
+        }
+    }
+
+    // ===== Classic Automobile Temperature Gauge =====
+    class TemperatureGauge(context: Context) : View(context) {
+        private var temperature = 0f
+        private val minTemp = 0f
+        private val maxTemp = 100f
+
+        private val trackPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#2D3748") // dark gray
+            style = Paint.Style.STROKE
+            strokeWidth = 25f
+            strokeCap = Paint.Cap.ROUND
+        }
+
+        private val coldZonePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#3B82F6") // blue
+            style = Paint.Style.STROKE
+            strokeWidth = 25f
+            strokeCap = Paint.Cap.ROUND
+        }
+
+        private val normalZonePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#10B981") // green
+            style = Paint.Style.STROKE
+            strokeWidth = 25f
+            strokeCap = Paint.Cap.ROUND
+        }
+
+        private val hotZonePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#EF4444") // red
+            style = Paint.Style.STROKE
+            strokeWidth = 25f
+            strokeCap = Paint.Cap.ROUND
+        }
+
+        private val tickPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.WHITE
+            style = Paint.Style.STROKE
+            strokeWidth = 3f
+        }
+
+        private val boldTickPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.WHITE
+            style = Paint.Style.STROKE
+            strokeWidth = 5f
+        }
+
+        private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.WHITE
+            textAlign = Paint.Align.CENTER
+            textSize = 28f
+            typeface = Typeface.DEFAULT_BOLD
+        }
+
+        private val pointerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.WHITE
+            style = Paint.Style.FILL
+        }
+
+        private val centerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#1F2937")
+            style = Paint.Style.FILL
+        }
+
+        private val valuePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.WHITE
+            textAlign = Paint.Align.CENTER
+            textSize = 42f
+            typeface = Typeface.DEFAULT_BOLD
+        }
+
+        private val labelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#9CA3AF")
+            textAlign = Paint.Align.CENTER
+            textSize = 32f
+            typeface = Typeface.DEFAULT
+        }
+
+        fun setTemperature(temp: Float) { 
+            temperature = temp.coerceIn(minTemp, maxTemp)
+            invalidate() 
+        }
+
+        override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+            val w = MeasureSpec.getSize(widthMeasureSpec)
+            val h = max((w * 0.8f).roundToInt(), 300)
+            setMeasuredDimension(w, h)
+        }
+
+        override fun onDraw(c: Canvas) {
+            super.onDraw(c)
+            val w = width.toFloat()
+            val h = height.toFloat()
+            
+            // Gauge dimensions
+            val centerX = w / 2
+            val centerY = h * 0.7f
+            val radius = min(w, h * 1.5f) * 0.35f
+            val rect = RectF(centerX - radius, centerY - radius, centerX + radius, centerY + radius)
+
+            // Draw gauge background (full circle)
+            val startAngle = 150f
+            val sweepAngle = 240f
+
+            // Draw temperature zones
+            // Cold zone: 0-40°C (blue)
+            val coldSweep = 96f // 40% of 240°
+            c.drawArc(rect, startAngle, coldSweep, false, coldZonePaint)
+
+            // Normal zone: 40-80°C (green)
+            val normalSweep = 96f // 40% of 240°
+            c.drawArc(rect, startAngle + coldSweep, normalSweep, false, normalZonePaint)
+
+            // Hot zone: 80-100°C (red)
+            val hotSweep = 48f // 20% of 240°
+            c.drawArc(rect, startAngle + coldSweep + normalSweep, hotSweep, false, hotZonePaint)
+
+            // Draw track (background)
+            c.drawArc(rect, startAngle, sweepAngle, false, trackPaint)
+
+            // Draw ticks
+            drawTicks(c, centerX, centerY, radius, startAngle, sweepAngle)
+
+            // Draw labels
+            drawLabels(c, centerX, centerY, radius + 40, startAngle, sweepAngle)
+
+            // Draw center circle
+            c.drawCircle(centerX, centerY, 20f, centerPaint)
+
+            // Draw pointer
+            drawPointer(c, centerX, centerY, radius - 15, startAngle, sweepAngle)
+
+            // Draw value in center
+            val valueText = "%.1f°C".format(temperature)
+            val valueY = centerY + valuePaint.textSize / 3
+            c.drawText(valueText, centerX, valueY, valuePaint)
+
+            // Draw label
+            c.drawText("TEMPERATURE", centerX, centerY - radius - 30, labelPaint)
+        }
+
+        private fun drawTicks(c: Canvas, cx: Float, cy: Float, radius: Float, startAngle: Float, sweepAngle: Float) {
+            val tickLength = 15f
+            val boldTickLength = 25f
+
+            for (i in 0..10) {
+                val angle = startAngle + (sweepAngle * i / 10)
+                val isBold = i % 2 == 0 // Bold ticks at 0, 20, 40, 60, 80, 100
+                
+                val rad = Math.toRadians(angle.toDouble())
+                val cos = cos(rad).toFloat()
+                val sin = sin(rad).toFloat()
+                
+                val innerRadius = radius - (if (isBold) boldTickLength else tickLength)
+                val x1 = cx + innerRadius * cos
+                val y1 = cy + innerRadius * sin
+                val x2 = cx + radius * cos
+                val y2 = cy + radius * sin
+                
+                c.drawLine(x1, y1, x2, y2, if (isBold) boldTickPaint else tickPaint)
+            }
+        }
+
+        private fun drawLabels(c: Canvas, cx: Float, cy: Float, radius: Float, startAngle: Float, sweepAngle: Float) {
+            val labels = listOf("0", "20", "40", "60", "80", "100")
+            
+            for (i in labels.indices) {
+                val angle = startAngle + (sweepAngle * i * 2 / 10) // 0, 20, 40, 60, 80, 100
+                val rad = Math.toRadians(angle.toDouble())
+                val x = cx + radius * cos(rad).toFloat()
+                val y = cy + radius * sin(rad).toFloat() + textPaint.textSize / 3
+                
+                c.drawText(labels[i], x, y, textPaint)
+            }
+        }
+
+        private fun drawPointer(c: Canvas, cx: Float, cy: Float, radius: Float, startAngle: Float, sweepAngle: Float) {
+            // Calculate pointer angle based on temperature
+            val normalizedTemp = (temperature - minTemp) / (maxTemp - minTemp)
+            val pointerAngle = startAngle + (sweepAngle * normalizedTemp)
+            
+            val rad = Math.toRadians(pointerAngle.toDouble())
+            val pointerX = cx + radius * cos(rad).toFloat()
+            val pointerY = cy + radius * sin(rad).toFloat()
+            
+            // Draw pointer line
+            c.drawLine(cx, cy, pointerX, pointerY, pointerPaint)
+            
+            // Draw pointer tip
+            c.drawCircle(pointerX, pointerY, 8f, pointerPaint)
+            
+            // Draw center circle over pointer base
+            c.drawCircle(cx, cy, 12f, centerPaint)
+            c.drawCircle(cx, cy, 8f, pointerPaint)
         }
     }
 }
