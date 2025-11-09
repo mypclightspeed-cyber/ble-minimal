@@ -396,7 +396,22 @@ class MeterActivity : AppCompatActivity() {
         val current = iRaw / 100.0
         val soc = p[19].toInt() and 0xFF
 
-        runOnUiThread {
+                // Temperature extraction with null fallback (JBD NTC layout)
+        val dataStart = 4
+        var tempText = "null"
+        if (p.size > dataStart + 22) {
+            val ntcCount = p[dataStart + 22].toInt() and 0xFF
+            val firstTempIdx = dataStart + 23
+            if (ntcCount > 0 && p.size >= firstTempIdx + 2) {
+                val tRaw = ((p[firstTempIdx].toInt() and 0xFF) shl 8) or (p[firstTempIdx + 1].toInt() and 0xFF)
+                val tempC = (tRaw - 2731) / 10.0
+                if (!tempC.isNaN() && tempC > -100 && tempC < 200) {
+                    tempText = String.format("%.1f °C", tempC)
+                }
+            }
+        }
+
+runOnUiThread {
             gauge.setPercent(soc.coerceIn(0, 100))
             tvVolt.text = String.format("%.3f V", voltage)
             tvCurr.text = String.format("%.3f A", current)
@@ -454,8 +469,7 @@ class MeterActivity : AppCompatActivity() {
         private val pointer = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.parseColor("#EF4444") // red
             style = Paint.Style.FILL
-        
-            setShadowLayer(22f, 0f, 0f, Color.parseColor("#88EF4444"))}
+        }
         // SOC text — bigger and blue, drawn upper-middle with extra gap
         private val socPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.parseColor("#2563EB") // blue
@@ -509,10 +523,9 @@ class MeterActivity : AppCompatActivity() {
 
             // progress gradient
             val levelColor = when {
-                pct >= 80 -> Color.parseColor("#3B82F6") // blue
-                pct >= 30 -> Color.parseColor("#22C55E") // green
-                pct >= 15 -> Color.parseColor("#EAB308") // yellow
-                else      -> Color.parseColor("#EF4444") // red
+                pct >= 80 -> Color.parseColor("#22C55E")
+                pct >= 30 -> Color.parseColor("#F59E0B")
+                else      -> Color.parseColor("#EF4444")
             }
             progress.shader = SweepGradient(
                 rect.centerX(), rect.centerY(),
