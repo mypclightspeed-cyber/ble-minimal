@@ -105,13 +105,6 @@ class MeterActivity : AppCompatActivity() {
         }
 
         btnScan = Button(this).apply { text = "Start Scan (20s)" }
-        val subtitle = TextView(this).apply {
-            text = "Lithium ion Technology"
-            textSize = 14f
-            setTextColor(Color.parseColor("#00A0A0")) // Siemens green
-            setPadding(8, 0, 8, 12)
-        }
-
         list = ListView(this)
 
         // Gauge style 3 (modern half-circle) with A1: 180° sweep, start at 180°
@@ -161,7 +154,6 @@ class MeterActivity : AppCompatActivity() {
             orientation = LinearLayout.VERTICAL
             setPadding(12, 12, 12, 12)
             addView(logo)
-            addView(subtitle)
             addView(bannerWarn)
             addView(btnScan)
             addView(list, LinearLayout.LayoutParams(
@@ -431,8 +423,11 @@ class MeterActivity : AppCompatActivity() {
     }
 
     // ===== Gauge Style 3 (Modern half-circle): A1 sweep 180°, start at 180°, radius shrink 0.75, red pointer, blue SOC text upper-middle =====
+    
     class ModernHalfGauge(context: Context) : View(context) {
         private var percent = 0
+        private var label = "SOC"
+
         private val trackPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             style = Paint.Style.STROKE
             strokeWidth = 26f
@@ -450,114 +445,95 @@ class MeterActivity : AppCompatActivity() {
             strokeWidth = 4f
             color = Color.parseColor("#94A3B8")
         }
-        private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        private val labelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.WHITE
+            textAlign = Paint.Align.CENTER
+            textSize = 32f
+            typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD)
+        }
+        private val percentPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.WHITE
+            textAlign = Paint.Align.CENTER
             textSize = 44f
             typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD)
-            textAlign = Paint.Align.CENTER
         }
-        private val pointer = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        private val pointerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             style = Paint.Style.FILL
             color = Color.WHITE
             setShadowLayer(12f, 0f, 6f, Color.parseColor("#55000000"))
         }
         init { setLayerType(LAYER_TYPE_SOFTWARE, null) }
+
         fun setPercent(p: Int) { percent = p.coerceIn(0, 100); invalidate() }
+        fun setLabel(s: String) { label = s; invalidate() }
+
         override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
             val w = MeasureSpec.getSize(widthMeasureSpec)
             setMeasuredDimension(w, (w * 0.6f).toInt())
         }
+
         override fun onDraw(c: Canvas) {
             super.onDraw(c)
-            val w = width; val h = height
+            val w = width.toFloat()
+            val h = height.toFloat()
             val pad = 36f
             val oval = RectF(pad, pad, w - pad, h * 2f - pad)
-            // track
+
+            // Track
             c.drawArc(oval, 180f, 180f, false, trackPaint)
-            // color thresholds: <15 red, <20 yellow, 20-80 green, 80-100 blue
+
+            // Arc color thresholds
             arcPaint.color = when {
-                percent < 15 -> Color.parseColor("#EF4444")
-                percent < 20 -> Color.parseColor("#EAB308")
-                percent <= 80 -> Color.parseColor("#22C55E")
-                else -> Color.parseColor("#3B82F6")
+                percent < 15 -> Color.parseColor("#EF4444") // red
+                percent < 20 -> Color.parseColor("#EAB308") // yellow
+                percent <= 80 -> Color.parseColor("#22C55E") // green
+                else -> Color.parseColor("#3B82F6") // blue
             }
+            // Progress
             c.drawArc(oval, 180f, 180f * (percent / 100f), false, arcPaint)
-            // ticks at 0,25,75,100
-            val ticks = intArrayOf(0, 25, 75, 100)
-            for (t in ticks) {
-                val a = Math.toRadians(180.0 + 180.0 * (t / 100.0))
-                val rOuter = (w - pad) - pad
-                val cx = w / 2f; val cy = h.toFloat()
+
+            // Ticks at 0,25,75,100
+            val marks = intArrayOf(0,25,75,100)
+            for (m in marks) {
+                val ang = Math.toRadians(180.0 + 180.0 * (m / 100.0))
                 val R = (oval.right - oval.left) / 2f
-                val cxOval = (oval.left + oval.right) / 2f
-                val cyOval = (oval.top + oval.bottom) / 2f
-                val r = R - 3f
-                val x1 = (cxOval + r * Math.cos(a)).toFloat()
-                val y1 = (cyOval + r * Math.sin(a)).toFloat()
-                val x2 = (cxOval + (r - 18f) * Math.cos(a)).toFloat()
-                val y2 = (cyOval + (r - 18f) * Math.sin(a)).toFloat()
+                val cx = (oval.left + oval.right) / 2f
+                val cy = (oval.top + oval.bottom) / 2f
+                val outer = R - 6f
+                val inner = outer - 18f
+                val x1 = (cx + outer * Math.cos(ang)).toFloat()
+                val y1 = (cy + outer * Math.sin(ang)).toFloat()
+                val x2 = (cx + inner * Math.cos(ang)).toFloat()
+                val y2 = (cy + inner * Math.sin(ang)).toFloat()
                 c.drawLine(x1, y1, x2, y2, tickPaint)
             }
-            // pointer with shadow
+
+            // Pointer with shadow
             val ang = Math.toRadians(180.0 + 180.0 * (percent / 100.0))
             val R = (oval.right - oval.left) / 2f
-            val cxOval = (oval.left + oval.right) / 2f
-            val cyOval = (oval.top + oval.bottom) / 2f
-            val tipX = (cxOval + (R - 36f) * Math.cos(ang)).toFloat()
-            val tipY = (cyOval + (R - 36f) * Math.sin(ang)).toFloat()
+            val cx = (oval.left + oval.right) / 2f
+            val cy = (oval.top + oval.bottom) / 2f
+            val tipX = (cx + (R - 36f) * Math.cos(ang)).toFloat()
+            val tipY = (cy + (R - 36f) * Math.sin(ang)).toFloat()
             val back = 42f
             val baseW = 16f
             val perp = ang + Math.PI / 2
-            val b1x = (cxOval - back * Math.cos(ang) + baseW * Math.cos(perp)).toFloat()
-            val b1y = (cyOval - back * Math.sin(ang) + baseW * Math.sin(perp)).toFloat()
-            val b2x = (cxOval - back * Math.cos(ang) - baseW * Math.cos(perp)).toFloat()
-            val b2y = (cyOval - back * Math.sin(ang) - baseW * Math.sin(perp)).toFloat()
+            val b1x = (cx - back * Math.cos(ang) + baseW * Math.cos(perp)).toFloat()
+            val b1y = (cy - back * Math.sin(ang) + baseW * Math.sin(perp)).toFloat()
+            val b2x = (cx - back * Math.cos(ang) - baseW * Math.cos(perp)).toFloat()
+            val b2y = (cy - back * Math.sin(ang) - baseW * Math.sin(perp)).toFloat()
             val path = Path()
             path.moveTo(tipX, tipY)
             path.lineTo(b1x, b1y)
             path.lineTo(b2x, b2y)
             path.close()
-            c.drawPath(path, pointer)
-            c.drawText("$percent%", w / 2f, h - 18f, textPaint)
+            c.drawPath(path, pointerPaint)
+            c.drawCircle(cx, cy, 10f, pointerPaint)
+
+            // Label + percent
+            c.drawText(label, w/2f, pad + 48f, labelPaint)
+            c.drawText("$percent%", w/2f, h - 18f, percentPaint)
         }
     }
-}
 
-
-        private fun drawLabels(c: Canvas, rect: RectF, start: Float, sweep: Float) {
-            val cx = rect.centerX()
-            val cy = rect.centerY()
-            val r = rect.width() / 2f + 24f
-            val marks = listOf(0, 25, 50, 75, 100)
-            for (m in marks) {
-                val a = Math.toRadians((start + sweep * (m / 100f)).toDouble())
-                val x = (cx + r * cos(a)).toFloat()
-                val y = (cy + r * sin(a)).toFloat()
-                c.drawText("${m}%", x, y, textLabel)
-            }
-        }
-
-        private fun drawPointer(c: Canvas, rect: RectF, angleDeg: Float) {
-            val cx = rect.centerX()
-            val cy = rect.centerY()
-            val r = rect.width() / 2.25f
-            val a = Math.toRadians(angleDeg.toDouble())
-            val tipX = (cx + r * cos(a)).toFloat()
-            val tipY = (cy + r * sin(a)).toFloat()
-            val baseW = 16f
-            val back = 42f
-            val perp = a + Math.PI / 2
-            val b1x = (cx - back * cos(a) + baseW * cos(perp)).toFloat()
-            val b1y = (cy - back * sin(a) + baseW * sin(perp)).toFloat()
-            val b2x = (cx - back * cos(a) - baseW * cos(perp)).toFloat()
-            val b2y = (cy - back * sin(a) - baseW * sin(perp)).toFloat()
-            val path = Path()
-            path.moveTo(tipX, tipY)
-            path.lineTo(b1x, b1y)
-            path.lineTo(b2x, b2y)
-            path.close()
-            c.drawPath(path, pointer)
-            c.drawCircle(cx, cy, 12f, pointer)
-        }
-    }
 }
