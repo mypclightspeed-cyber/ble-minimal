@@ -171,7 +171,7 @@ class MeterActivity : AppCompatActivity() {
 
         bluetoothAdapter = (getSystemService(BLUETOOTH_SERVICE) as BluetoothManager).adapter
         scanner = bluetoothAdapter?.bluetoothLeScanner
-
+        scanner?.startScan(null, settings, scanCb)
         adapterLv = ArrayAdapter(this, android.R.layout.simple_list_item_1, ArrayList())
         list.adapter = adapterLv
 
