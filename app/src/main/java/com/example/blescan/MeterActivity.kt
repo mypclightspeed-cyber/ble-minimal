@@ -110,7 +110,7 @@ class MeterActivity : AppCompatActivity() {
         btnScan = Button(this).apply { text = "Start Scan (20s)" }
         list = ListView(this)
 
-        // ===== Dashboard cluster: SOC big arc + centered temp gauge inside =====
+        // ===== Dashboard cluster: SOC big arc + temp gauge inside RIGHT-DOWN =====
         val gauges = FrameLayout(this).apply {
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 520
@@ -126,15 +126,15 @@ class MeterActivity : AppCompatActivity() {
         }
         gauges.addView(socGauge)
 
-        // Temp gauge slightly smaller and lower, better visual alignment inside SOC arc
+        // Temp gauge bottom-right inside SOC gauge; size = 40% of screen width
         tempGauge = TempHalfGauge(this).apply {
             val w = resources.displayMetrics.widthPixels
-            val size = (min(w, 1200) * 0.36f).toInt() // 36% instead of 40%
-            layoutParams = FrameLayout.LayoutParams(size, size).apply {
-                gravity = Gravity.CENTER_HORIZONTAL
-                topMargin = 45   // push it down visually (~45dp)
+            val size = (min(w, 1200) * 0.40f).toInt()
+            layoutParams = FrameLayout.LayoutParams(size, size, Gravity.END or Gravity.BOTTOM).apply {
+                rightMargin = 20
+                bottomMargin = 14
             }
-            setTempC(null)
+            setTempC(null) // default needle at cold
         }
         gauges.addView(tempGauge)
         tempGauge.bringToFront()
@@ -166,7 +166,7 @@ class MeterActivity : AppCompatActivity() {
             return card to (titleTv to valueTv)
         }
 
-        // Temperature card is REMOVED as requested
+        // Temperature card is REMOVED
         val (cardVolt, pairVolt) = makeCard("Voltage (V)", "#10B981")
         val (cardCurr, pairCurr) = makeCard("Current (A)", "#F59E0B")
         val (cardName, pairName) = makeCard("Device",      "#3B82F6")
@@ -181,11 +181,9 @@ class MeterActivity : AppCompatActivity() {
             addView(logo)
             addView(bannerWarn)
             addView(btnScan)
-
             // Shorter device list so dashboard has more room
             addView(list, LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 0.35f))
-
             addView(gauges)
             addView(cardVolt)
             addView(cardCurr)
@@ -469,7 +467,7 @@ class MeterActivity : AppCompatActivity() {
     class ModernHalfGauge(context: Context) : View(context) {
         private var pct = 0
         private var label = "SOC"
-        private val radiusScale = 1.05f // ~1.4x
+        private val radiusScale = 1.05f
 
         private val track = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.parseColor("#E5E7EB")
@@ -632,12 +630,12 @@ class MeterActivity : AppCompatActivity() {
         }
     }
 
-    // ===== Temperature Gauge (centered) =====
+    // ===== Temperature Gauge (bottom-right, car-style) =====
     class TempHalfGauge(context: Context) : View(context) {
         private var tempC: Double? = null
         private val minC = -20.0
         private val maxC = 120.0
-        private val radiusScale = 1.44f // visual stroke proportion
+        private val radiusScale = 1.44f // visual proportion only
 
         private val track = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.BLACK
@@ -672,12 +670,12 @@ class MeterActivity : AppCompatActivity() {
             strokeCap = Paint.Cap.BUTT
         }
         private val symbolPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.BLACK
+            color = Color.BLACK   // thermometer symbol color
             style = Paint.Style.STROKE
             strokeWidth = 8f
         }
         private val wavePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.parseColor("#2563EB")
+            color = Color.parseColor("#2563EB") // blue waves
             style = Paint.Style.STROKE
             strokeWidth = 9f
         }
@@ -767,22 +765,32 @@ class MeterActivity : AppCompatActivity() {
             c.drawCircle(cx, cy, 10f, pointer)
         }
 
+        // Draw thermometer symbol (black) + two blue waves under it
         private fun drawThermoSymbolWithBlueWaves(c: Canvas, rect: RectF) {
             val cx = rect.centerX()
             val cy = rect.centerY()
 
-            val stemH = 48f
-            val bulbY = cy + 4f
+            // Thermometer: vertical stem with 3 right ticks + circle bulb
+            val stemTop = cy - rect.height()*0.14f
+            val stemBottom = cy - rect.height()*0.02f
             val stemX = cx
-            c.drawLine(stemX, bulbY, stemX, bulbY - stemH, symbolPaint)
-            c.drawCircle(stemX, bulbY, 11f, symbolPaint)
+            c.drawLine(stemX, stemTop, stemX, stemBottom, symbolPaint)
+            c.drawCircle(stemX, stemBottom + 12f, 12f, symbolPaint)
 
-            val waveLen = rect.width() * 0.36f
+            val tickLen = rect.width()*0.16f
+            val tickGap = (stemBottom - stemTop) / 3f
+            for (i in 0..2) {
+                val y = stemTop + i * tickGap
+                c.drawLine(stemX, y, stemX + tickLen, y, symbolPaint)
+            }
+
+            // Waves (blue) under bulb
+            val waveLen = rect.width() * 0.42f
             val startX = cx - waveLen / 2f
-            val baseY = bulbY + 22f
+            val baseY = stemBottom + 24f
             val amp = 7f
-            repeat(3) { i ->
-                val y = baseY + i * 11f
+            repeat(2) { i ->
+                val y = baseY + i * 12f
                 val path = Path().apply {
                     moveTo(startX, y)
                     rQuadTo(waveLen / 4f, -amp, waveLen / 2f, 0f)
