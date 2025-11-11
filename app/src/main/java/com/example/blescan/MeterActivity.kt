@@ -7,7 +7,6 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.*
-import android.util.AttributeSet
 import android.location.LocationManager
 import android.os.Build
 import android.os.Bundle
@@ -48,9 +47,8 @@ class MeterActivity : AppCompatActivity() {
     private lateinit var bannerWarn: TextView
     private lateinit var btnScan: Button
     private lateinit var list: ListView
-    private lateinit var gauge: ModernHalfGauge
-    private var lastTempC: Double? = null
-    private lateinit var tempGauge: TemperatureGaugeView
+    private lateinit var gaugeSOC: ModernHalfGauge
+    private lateinit var gaugeTemp: ModernHalfGauge
 
     private lateinit var tvVolt: TextView
     private lateinit var tvCurr: TextView
@@ -110,14 +108,35 @@ class MeterActivity : AppCompatActivity() {
         btnScan = Button(this).apply { text = "Start Scan (20s)" }
         list = ListView(this)
 
-        // Gauge style 3 (modern half-circle) with A1: 180° sweep, start at 180°
-        gauge = ModernHalfGauge(this).apply {
+        // Create horizontal container for gauges
+        val gaugeContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 380
             ).apply { setMargins(16, 10, 16, 6) }
+            weightSum = 2f
+        }
+
+        // SOC Gauge
+        gaugeSOC = ModernHalfGauge(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.MATCH_PARENT, 1f
+            ).apply { setMargins(4, 0, 4, 0) }
             setLabel("SOC")
             setPercent(0)
         }
+
+        // Temperature Gauge
+        gaugeTemp = ModernHalfGauge(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.MATCH_PARENT, 1f
+            ).apply { setMargins(4, 0, 4, 0) }
+            setLabel("TEMP")
+            setPercent(0)
+        }
+
+        gaugeContainer.addView(gaugeSOC)
+        gaugeContainer.addView(gaugeTemp)
 
         fun makeCard(title: String, colorHex: String): Pair<LinearLayout, Pair<TextView, TextView>> {
             val card = LinearLayout(this).apply {
@@ -161,22 +180,7 @@ class MeterActivity : AppCompatActivity() {
             addView(btnScan)
             addView(list, LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
-            val gaugeRow = LinearLayout(this@MeterActivity).apply {
-                orientation = LinearLayout.HORIZONTAL
-                weightSum = 1f
-                layoutParams = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT, 380
-                ).apply { setMargins(16, 10, 16, 6) }
-                // SoC (2/3)
-                gauge.layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 0.7f)
-                addView(gauge)
-                // Temperature (1/3)
-                tempGauge = TemperatureGaugeView(this@MeterActivity).apply {
-                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 0.3f)
-                }
-                addView(tempGauge)
-            }
-            addView(gaugeRow)          // gauges ABOVE parameters
+            addView(gaugeContainer)  // Both gauges side by side
             addView(cardVolt)
             addView(cardCurr)
             addView(cardName)
@@ -293,7 +297,8 @@ class MeterActivity : AppCompatActivity() {
 
         // reset on each new scan
         devices.clear(); rows.clear(); adapterLv.clear(); advertisedName.clear()
-        gauge.setPercent(0)
+        gaugeSOC.setPercent(0)
+        gaugeTemp.setPercent(0)
         tvVolt.text = "-"
         tvCurr.text = "-"
         tvName.text = ""
@@ -416,25 +421,26 @@ class MeterActivity : AppCompatActivity() {
         val current = iRaw / 100.0
         val soc = p[19].toInt() and 0xFF
 
-                // Temperature extraction per JBD (0x03) with null fallback
+        // Temperature extraction per JBD (0x03) with null fallback
         val dataStart = 4
+        var tempValue = 0.0
         if (p.size > dataStart + 22) {
             val ntcCount = p[dataStart + 22].toInt() and 0xFF
             val firstTempIdx = dataStart + 23
             if (ntcCount > 0 && p.size >= firstTempIdx + 2) {
                 val tRaw = ((p[firstTempIdx].toInt() and 0xFF) shl 8) or (p[firstTempIdx + 1].toInt() and 0xFF)
-                val tempC = (tRaw - 2731) / 10.0
-                lastTempC = tempC
-                if (!tempC.isNaN() && tempC > -100 && tempC < 200) {
-                }
+                tempValue = (tRaw - 2731) / 10.0
             }
         }
 
-runOnUiThread {
-            gauge.setPercent(soc.coerceIn(0, 100))
+        // Convert temperature to percentage for gauge (-5°C to 95°C range)
+        val tempPercent = ((tempValue - (-5)) / (95 - (-5)) * 100).coerceIn(0.0, 100.0).toInt()
+
+        runOnUiThread {
+            gaugeSOC.setPercent(soc.coerceIn(0, 100))
+            gaugeTemp.setPercent(tempPercent)
             tvVolt.text = String.format("%.3f V", voltage)
             tvCurr.text = String.format("%.3f A", current)
-            lastTempC?.let { tempGauge.setValue(it.toFloat()) }
         }
     }
 
@@ -612,12 +618,24 @@ runOnUiThread {
             val cx = rect.centerX()
             val cy = rect.centerY()
             val r = rect.width() / 2f + 24f
-            val marks = listOf(0, 25, 50, 75, 100)
+            val marks = if (label == "SOC") {
+                listOf(0, 25, 50, 75, 100)
+            } else {
+                // Temperature gauge: -5°C, 50°C, 95°C
+                listOf(-5, 50, 95)
+            }
+            
             for (m in marks) {
-                val a = Math.toRadians((start + sweep * (m / 100f)).toDouble())
+                val a = if (label == "SOC") {
+                    Math.toRadians((start + sweep * (m / 100f)).toDouble())
+                } else {
+                    // Map temperature values to percentage positions
+                    val tempPercent = ((m - (-5)) / (95 - (-5)) * 100).toDouble()
+                    Math.toRadians((start + sweep * (tempPercent / 100f)).toDouble())
+                }
                 val x = (cx + r * cos(a)).toFloat()
                 val y = (cy + r * sin(a)).toFloat()
-                c.drawText("${m}%", x, y, textLabel)
+                c.drawText("${m}${if (label == "SOC") "%" else "°C"}", x, y, textLabel)
             }
         }
 
@@ -648,208 +666,5 @@ runOnUiThread {
             c.drawPath(path, pointer)
             c.drawCircle(cx, cy, 12f, pointer)
         }
-    }
-}
-
-/**
- * Temperature gauge with segmented background:
- * 1/4 Blue 'C' | 1/2 White 'N' | 1/4 Red 'H'.
- * Shows °C via SoC-like progress arc.
- */
-class TemperatureGaugeView @JvmOverloads constructor(
-    context: Context,
-    attrs: AttributeSet? = null,
-    defStyleAttr: Int = 0
-) : View(context, attrs, defStyleAttr) {
-
-    private var minValue = -5f
-    private var maxValue = 95f
-    private var value = 0f
-
-    private var labelColor: Int = Color.WHITE
-    private var label: String = "TEMP"
-    private var suffix: String = "°C"
-
-    private val basePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.STROKE
-        strokeWidth = 36f
-        strokeCap = Paint.Cap.BUTT
-        color = Color.DKGRAY
-    }
-    private val segPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.STROKE
-        strokeWidth = 36f
-        strokeCap = Paint.Cap.BUTT
-    }
-    private val progressPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.STROKE
-        strokeWidth = 36f
-        strokeCap = Paint.Cap.ROUND
-        color = Color.WHITE
-    }
-    
-private val pointerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-    style = Paint.Style.FILL
-    color = Color.RED
-}
-private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-
-        textAlign = Paint.Align.CENTER
-        color = Color.WHITE
-    }
-    private val labelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        textAlign = Paint.Align.CENTER
-        color = Color.WHITE
-    }
-
-    private val arcRect = RectF()
-    private val startAngle = 135f
-    private val sweepAngle = 270f
-
-    fun setValueRange(min: Float, max: Float) {
-        minValue = min
-        maxValue = max
-        invalidate()
-    }
-
-    fun setValue(v: Float) {
-        value = v.coerceIn(minValue, maxValue)
-        invalidate()
-    }
-
-    fun setLabelColor(color: Int) { labelColor = color; invalidate() }
-    fun setLabel(text: String) { label = text; invalidate() }
-    fun setFormatSuffix(s: String) { suffix = s; invalidate() }
-
-    override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
-        val w = MeasureSpec.getSize(widthMeasureSpec)
-        val h = MeasureSpec.getSize(heightMeasureSpec)
-        val size = kotlin.math.min(w, h)
-        setMeasuredDimension(size, size)
-    }
-
-    override fun onDraw(canvas: Canvas) {
-        super.onDraw(canvas)
-
-        val size = width
-        val stroke = basePaint.strokeWidth
-        val padding = stroke / 2f + 12f
-        arcRect.set(padding, padding, size - padding, size - padding)
-
-        // Base dark track
-        canvas.drawArc(arcRect, startAngle, sweepAngle, false, basePaint)
-
-        // Segments: 25% blue, 50% white, 25% red
-        val q1Sweep = sweepAngle * 0.25f
-        val midSweep = sweepAngle * 0.50f
-        val q4Sweep = sweepAngle * 0.25f
-
-        segPaint.color = Color.rgb(0, 122, 255) // Blue - C
-        canvas.drawArc(arcRect, startAngle, q1Sweep, false, segPaint)
-
-        segPaint.color = Color.WHITE          // White - N
-        canvas.drawArc(arcRect, startAngle + q1Sweep, midSweep, false, segPaint)
-
-        segPaint.color = Color.RED            // Red - H
-        canvas.drawArc(arcRect, startAngle + q1Sweep + midSweep, q4Sweep, false, segPaint)
-
-        // Progress arc (SoC-like behavior)
-        val ratio = if (maxValue > minValue) (value - minValue) / (maxValue - minValue) else 0f
-        val progressSweep = sweepAngle * ratio.coerceIn(0f, 1f)
-        
-canvas.drawArc(arcRect, startAngle, progressSweep, false, progressPaint)
-/*__TEMP_POINTER_START__*/
-// Red pointer at the arc tip (does not affect arc color)
-run {
-    val cx = width / 2f
-    val cy = height / 2f
-    val size = minOf(width, height).toFloat()
-    val radius = size * 0.38f  // matches arc radius
-    val angleDeg = startAngle + progressSweep
-    val angleRad = Math.toRadians(angleDeg.toDouble())
-
-    // Tip of the pointer on the arc
-    val tipX = cx + (radius) * Math.cos(angleRad).toFloat()
-    val tipY = cy + (radius) * Math.sin(angleRad).toFloat()
-
-    // Small triangular pointer
-    val backRadius = radius - size * 0.06f
-    val leftAngle = angleRad - Math.toRadians(6.0)
-    val rightAngle = angleRad + Math.toRadians(6.0)
-    val leftX = cx + backRadius * Math.cos(leftAngle).toFloat()
-    val leftY = cy + backRadius * Math.sin(leftAngle).toFloat()
-    val rightX = cx + backRadius * Math.cos(rightAngle).toFloat()
-    val rightY = cy + backRadius * Math.sin(rightAngle).toFloat()
-
-    val p = android.graphics.Path()
-    p.moveTo(tipX, tipY)
-    p.lineTo(leftX, leftY)
-    p.lineTo(rightX, rightY)
-    p.close()
-    canvas.drawPath(p, pointerPaint)
-}
-/*__TEMP_POINTER_END__*/
-
-/*__TEMP_TICKS_START__*/
-// Ticks and labels at -5, 50, 95
-run {
-    val ticks = floatArrayOf(-5f, 50f, 95f)
-    val labelSize = size * 0.085f
-    val tickLen = size * 0.05f
-    val cx = width / 2f
-    val cy = height / 2f
-    val radius = size * 0.41f  // slightly outside the arc
-    textPaint.textSize = labelSize
-    textPaint.typeface = Typeface.DEFAULT_BOLD
-
-    for (t in ticks) {
-        val frac = ((t - minValue) / (maxValue - minValue)).coerceIn(0f, 1f)
-        val angDeg = startAngle + sweepAngle * frac
-        val ang = Math.toRadians(angDeg.toDouble())
-
-        val sx = cx + (radius - tickLen) * Math.cos(ang).toFloat()
-        val sy = cy + (radius - tickLen) * Math.sin(ang).toFloat()
-        val ex = cx + (radius) * Math.cos(ang).toFloat()
-        val ey = cy + (radius) * Math.sin(ang).toFloat()
-
-        // draw tick
-        canvas.drawLine(sx, sy, ex, ey, progressPaint)
-
-        // label, nudge outwards
-        val tx = cx + (radius + labelSize * 0.6f) * Math.cos(ang).toFloat()
-        val ty = cy + (radius + labelSize * 0.6f) * Math.sin(ang).toFloat() + labelSize * 0.33f
-        canvas.drawText(t.toInt().toString(), tx, ty, textPaint)
-    }
-}
-/*__TEMP_TICKS_END__*/
-
-
-
-        // Labels 'C', 'N', 'H' along the arc
-        labelPaint.color = labelColor
-        labelPaint.textSize = size * 0.10f
-
-        fun drawArcLabel(relativeT: Float, text: String) {
-            val angle = Math.toRadians((startAngle + sweepAngle * relativeT).toDouble())
-            val r = (size / 2f) - padding - 28f
-            val cx = size / 2f
-            val cy = size / 2f
-            val x = (cx + r * kotlin.math.cos(angle)).toFloat()
-            val y = (cy + r * kotlin.math.sin(angle)).toFloat() + labelPaint.textSize / 3f
-            canvas.drawText(text, x, y, labelPaint)
-        }
-        drawArcLabel(0.125f, "C")
-        drawArcLabel(0.50f, "N")
-        drawArcLabel(0.875f, "H")
-
-        // Center label and value
-        textPaint.color = labelColor
-        textPaint.textSize = size * 0.10f
-        canvas.drawText(label, size / 2f, size * 0.60f, textPaint)
-
-        textPaint.textSize = size * 0.18f
-        textPaint.typeface = Typeface.DEFAULT_BOLD
-val valueText = "${value.toInt()}$suffix"
-        canvas.drawText(valueText, size / 2f, size * 0.45f, textPaint)
     }
 }
