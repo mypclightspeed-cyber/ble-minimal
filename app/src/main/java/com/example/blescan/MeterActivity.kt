@@ -7,6 +7,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.*
+import android.util.AttributeSet
 import android.location.LocationManager
 import android.os.Build
 import android.os.Bundle
@@ -48,6 +49,7 @@ class MeterActivity : AppCompatActivity() {
     private lateinit var btnScan: Button
     private lateinit var list: ListView
     private lateinit var gauge: ModernHalfGauge
+    private var lastTempC: Double? = null
     private lateinit var tempGauge: TemperatureGaugeView
 
     private lateinit var tvVolt: TextView
@@ -159,7 +161,7 @@ class MeterActivity : AppCompatActivity() {
             addView(btnScan)
             addView(list, LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
-            val gaugeRow = LinearLayout(this).apply {
+            val gaugeRow = LinearLayout(this@MeterActivity).apply {
                 orientation = LinearLayout.HORIZONTAL
                 weightSum = 3f
                 layoutParams = LinearLayout.LayoutParams(
@@ -422,6 +424,7 @@ class MeterActivity : AppCompatActivity() {
             if (ntcCount > 0 && p.size >= firstTempIdx + 2) {
                 val tRaw = ((p[firstTempIdx].toInt() and 0xFF) shl 8) or (p[firstTempIdx + 1].toInt() and 0xFF)
                 val tempC = (tRaw - 2731) / 10.0
+                lastTempC = tempC
                 if (!tempC.isNaN() && tempC > -100 && tempC < 200) {
                 }
             }
@@ -431,7 +434,7 @@ runOnUiThread {
             gauge.setPercent(soc.coerceIn(0, 100))
             tvVolt.text = String.format("%.3f V", voltage)
             tvCurr.text = String.format("%.3f A", current)
-            tempGauge.setValue(tempC.toFloat())
+            lastTempC?.let { tempGauge.setValue(it.toFloat()) }
         }
     }
 
