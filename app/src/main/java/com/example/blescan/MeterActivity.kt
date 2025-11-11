@@ -442,9 +442,7 @@ class MeterActivity : AppCompatActivity() {
             if (ntcCount > 0 && p.size >= firstTempIdx + 2) {
                 val tRaw = ((p[firstTempIdx].toInt() and 0xFF) shl 8) or (p[firstTempIdx + 1].toInt() and 0xFF)
                 val tempC = (tRaw - 2731) / 10.0
-                if (!tempC.isNaN() && tempC > -100 && tempC < 200) {
-                    tempCValue = tempC
-                }
+                if (!tempC.isNaN() && tempC > -100 && tempC < 200) tempCValue = tempC
             }
         }
 
@@ -475,11 +473,12 @@ class MeterActivity : AppCompatActivity() {
         super.onDestroy()
     }
 
-    // ===== SOC Gauge (half-circle) =====
+    // ===== SOC Gauge (half-circle) with POINTER =====
     class ModernHalfGauge(context: Context) : View(context) {
         private var pct = 0
         private var label = "SOC"
-        private val radiusScale = 1.05f
+        // ↓ smaller by 0.8x
+        private val radiusScale = 0.84f
 
         private val track = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.parseColor("#E5E7EB")
@@ -514,6 +513,16 @@ class MeterActivity : AppCompatActivity() {
             textSize = 54f
             typeface = Typeface.create(Typeface.DEFAULT_BOLD, Typeface.BOLD)
         }
+        // pointer paints (with glow)
+        private val pointer = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#EF4444") // red
+            style = Paint.Style.FILL
+        }
+        private val pointerGlow = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#80EF4444")
+            style = Paint.Style.FILL
+            setShadowLayer(25f, 0f, 0f, Color.parseColor("#FFEF4444"))
+        }
 
         fun setPercent(v: Int) { pct = v.coerceIn(0, 100); invalidate() }
         fun setLabel(s: String) { label = s; invalidate() }
@@ -540,6 +549,7 @@ class MeterActivity : AppCompatActivity() {
             val sweepTotal = 180f
             c.drawArc(rect, startAngle, sweepTotal, false, track)
 
+            // ticks
             val cx = rect.centerX()
             val cy = rect.centerY()
             val rOuter = rect.width() / 2f
@@ -556,6 +566,7 @@ class MeterActivity : AppCompatActivity() {
                 c.drawLine(sx, sy, ex, ey, p)
             }
 
+            // progress color
             val levelColor = when {
                 pct < 15 -> Color.RED
                 pct < 30 -> Color.YELLOW
@@ -566,6 +577,14 @@ class MeterActivity : AppCompatActivity() {
             val sweep = sweepTotal * (pct / 100f)
             c.drawArc(rect, startAngle, sweep, false, progress)
 
+            // pointer with glow at end angle
+            setLayerType(LAYER_TYPE_SOFTWARE, pointerGlow)
+            val angle = startAngle + sweep
+            drawPointer(c, rect, angle, pointerGlow)
+            drawPointer(c, rect, angle, pointer)
+            setLayerType(LAYER_TYPE_HARDWARE, null)
+
+            // centered "SOC   NN%"
             val gap = 44f
             val socText = label
             val pctText = "$pct%"
@@ -579,14 +598,41 @@ class MeterActivity : AppCompatActivity() {
             c.drawText(socText, startX, baseline, socPaint)
             c.drawText(pctText, startX + socW + gap, baseline, pctPaint)
         }
+
+        private fun drawPointer(c: Canvas, rect: RectF, angleDeg: Float, paint: Paint) {
+            val cx = rect.centerX()
+            val cy = rect.centerY()
+            val r = rect.width() / 2.15f
+            val a = Math.toRadians(angleDeg.toDouble())
+            val tipX = (cx + r * cos(a)).toFloat()
+            val tipY = (cy + r * sin(a)).toFloat()
+            val baseW = 16f
+            val back = 42f
+            val perp = a + Math.PI / 2
+            val b1x = (cx - back * cos(a) + baseW * cos(perp)).toFloat()
+            val b1y = (cy - back * sin(a) + baseW * sin(perp)).toFloat()
+            val b2x = (cx - back * cos(a) - baseW * cos(perp)).toFloat()
+            val b2y = (cy - back * sin(a) - baseW * sin(perp)).toFloat()
+            val path = Path().apply {
+                moveTo(tipX, tipY); lineTo(b1x, b1y); lineTo(b2x, b2y); close()
+            }
+            c.drawPath(path, paint)
+            c.drawCircle(cx, cy, 12f, paint)
+        }
     }
 
-    // ===== Temperature Gauge (half-circle, scaled; gray arc + black markers + C/N/H + blue/red end zones) =====
+    // ===== Temperature Gauge (half-circle, scaled up 2x; shifted up & left; gray arc + black markers + C/N/H + blue/red end zones) =====
     class TempHalfGauge(context: Context) : View(context) {
         private var tempC: Double? = null
         private val minC = -20.0
         private val maxC = 120.0
-        private val radiusScale = 0.82f // downscale to fit 1/4 column
+        // ↑ 2x of previous 0.82f → 1.64f
+        private val radiusScale = 1.64f
+
+        // small manual offsets to move the gauge UP and LEFT without crossing the SOC curve
+        // (tune these if you need different placement)
+        private val offsetXFrac = -0.06f  // negative = move left (as % of size)
+        private val offsetYFrac = -0.10f  // negative = move up   (as % of size)
 
         private val grayArc = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.parseColor("#E5E7EB")
@@ -652,17 +698,19 @@ class MeterActivity : AppCompatActivity() {
             val h = height.toFloat()
             val baseSize = min(w - pad * 2, h * 2.0f - pad * 2)
             val size = baseSize * radiusScale
+
             val rect = RectF(
                 (w - size) / 2f, pad + (baseSize - size) / 2f,
                 (w + size) / 2f, pad + (baseSize - size) / 2f + size
             )
+            // shift up & left
+            rect.offset(size * offsetXFrac, size * offsetYFrac)
 
             val startAngle = 180f
             val sweepTotal = 180f
 
-            // Gray arc
+            // Gray arc with tiny colored ends
             c.drawArc(rect, startAngle, sweepTotal, false, grayArc)
-            // small colored zones
             val z = 22f
             c.drawArc(rect, startAngle, z, false, markBlue)
             c.drawArc(rect, startAngle + sweepTotal - z, z, false, markRed)
@@ -774,3 +822,8 @@ class MeterActivity : AppCompatActivity() {
         }
     }
 }
+
+// --- helpers (file bottom) ---
+private fun hex(s: String): ByteArray =
+    s.split(Regex("\\s+")).filter { it.isNotBlank() }.map { it.toInt(16).toByte() }.toByteArray()
+private fun uuid(short: String) = UUID.fromString("$short-0000-1000-8000-00805f9b34fb")
