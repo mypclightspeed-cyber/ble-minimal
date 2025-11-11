@@ -163,16 +163,16 @@ class MeterActivity : AppCompatActivity() {
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
             val gaugeRow = LinearLayout(this@MeterActivity).apply {
                 orientation = LinearLayout.HORIZONTAL
-                weightSum = 3f
+                weightSum = 1f
                 layoutParams = LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT, 380
                 ).apply { setMargins(16, 10, 16, 6) }
                 // SoC (2/3)
-                gauge.layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 2f)
+                gauge.layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 0.7f)
                 addView(gauge)
                 // Temperature (1/3)
                 tempGauge = TemperatureGaugeView(this@MeterActivity).apply {
-                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f)
+                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 0.3f)
                 }
                 addView(tempGauge)
             }
@@ -687,7 +687,13 @@ class TemperatureGaugeView @JvmOverloads constructor(
         strokeCap = Paint.Cap.ROUND
         color = Color.WHITE
     }
-    private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+    
+private val pointerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+    style = Paint.Style.FILL
+    color = Color.RED
+}
+private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+
         textAlign = Paint.Align.CENTER
         color = Color.WHITE
     }
@@ -750,7 +756,40 @@ class TemperatureGaugeView @JvmOverloads constructor(
         // Progress arc (SoC-like behavior)
         val ratio = if (maxValue > minValue) (value - minValue) / (maxValue - minValue) else 0f
         val progressSweep = sweepAngle * ratio.coerceIn(0f, 1f)
-        canvas.drawArc(arcRect, startAngle, progressSweep, false, progressPaint)
+        
+canvas.drawArc(arcRect, startAngle, progressSweep, false, progressPaint)
+/*__TEMP_POINTER_START__*/
+// Red pointer at the arc tip (does not affect arc color)
+run {
+    val cx = width / 2f
+    val cy = height / 2f
+    val size = minOf(width, height).toFloat()
+    val radius = size * 0.38f  // matches arc radius
+    val angleDeg = startAngle + progressSweep
+    val angleRad = Math.toRadians(angleDeg.toDouble())
+
+    // Tip of the pointer on the arc
+    val tipX = cx + (radius) * Math.cos(angleRad).toFloat()
+    val tipY = cy + (radius) * Math.sin(angleRad).toFloat()
+
+    // Small triangular pointer
+    val backRadius = radius - size * 0.06f
+    val leftAngle = angleRad - Math.toRadians(6.0)
+    val rightAngle = angleRad + Math.toRadians(6.0)
+    val leftX = cx + backRadius * Math.cos(leftAngle).toFloat()
+    val leftY = cy + backRadius * Math.sin(leftAngle).toFloat()
+    val rightX = cx + backRadius * Math.cos(rightAngle).toFloat()
+    val rightY = cy + backRadius * Math.sin(rightAngle).toFloat()
+
+    val p = android.graphics.Path()
+    p.moveTo(tipX, tipY)
+    p.lineTo(leftX, leftY)
+    p.lineTo(rightX, rightY)
+    p.close()
+    canvas.drawPath(p, pointerPaint)
+}
+/*__TEMP_POINTER_END__*/
+
 
         // Labels 'C', 'N', 'H' along the arc
         labelPaint.color = labelColor
