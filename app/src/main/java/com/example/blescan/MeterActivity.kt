@@ -471,7 +471,7 @@ class MeterActivity : AppCompatActivity() {
         private var pct = 0
         private var label = "SOC"
         // ~1.4x larger
-        private val radiusScale = 1.05f
+        private val radiusScale = 0.8f
 
         private val track = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.parseColor("#E5E7EB")
@@ -641,7 +641,7 @@ class MeterActivity : AppCompatActivity() {
         private val minC = -20.0
         private val maxC = 120.0
         // ~2x larger
-        private val radiusScale = 1.44f
+        private val radiusScale = 0.8f
 
         private val track = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.BLACK
@@ -772,43 +772,31 @@ class MeterActivity : AppCompatActivity() {
             c.drawCircle(cx, cy, 10f, pointer)
         }
 
-        
         private fun drawThermoSymbolWithBlueWaves(c: Canvas, rect: RectF) {
             val cx = rect.centerX()
             val cy = rect.centerY()
 
-            // Center thermometer symbol
-            val symbolHeight = rect.height() * 0.25f
-            val stemTop = cy - symbolHeight / 2
-            val stemBottom = cy + symbolHeight / 4
-            val stemX = cx
-            c.drawLine(stemX, stemTop, stemX, stemBottom, symbolPaint)
-            c.drawCircle(stemX, stemBottom + 14f, 14f, symbolPaint)
+            // thermometer (red)
+            val stemH = 34f
+            val bulbY = cy - 6f
+            val stemX = cx - rect.width() * 0.22f
+            c.drawLine(stemX, bulbY, stemX, bulbY - stemH, symbolPaint)
+            c.drawCircle(stemX, bulbY, 7f, symbolPaint)
 
-            val tickLen = rect.width() * 0.15f
-            val tickGap = (stemBottom - stemTop) / 3f
-            for (i in 0..2) {
-                val y = stemTop + i * tickGap
-                c.drawLine(stemX, y, stemX + tickLen, y, symbolPaint)
-            }
-
-            // Waves below thermometer
-            val waveLen = rect.width() * 0.5f
-            val startX = cx - waveLen / 2f
-            val baseY = stemBottom + 40f
-            val amp = 7f
-            repeat(2) { i ->
-                val y = baseY + i * 12f
+            // waves below (blue)
+            val waveLen = rect.width() * 0.28f
+            val startX = stemX - waveLen * 0.55f
+            val baseY = bulbY + 18f
+            val amp = 6f
+            repeat(3) { i ->
+                val y = baseY + i * 10f
                 val path = Path().apply {
                     moveTo(startX, y)
                     rQuadTo(waveLen / 4f, -amp, waveLen / 2f, 0f)
-                    rQuadTo(waveLen / 4f, amp, waveLen / 2f, 0f)
+                    rQuadTo(waveLen / 4f,  amp, waveLen / 2f, 0f)
                 }
                 c.drawPath(path, wavePaint)
             }
         }
-    }
-}
-
     }
 }
