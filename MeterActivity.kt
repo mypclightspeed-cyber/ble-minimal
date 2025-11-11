@@ -470,7 +470,7 @@ class MeterActivity : AppCompatActivity() {
     class ModernHalfGauge(context: Context) : View(context) {
         private var pct = 0
         private var label = "SOC"
-        private val radiusScale = 1.05f  // ~1.4x vs original
+        private val radiusScale = 0.9f  // ~1.4x vs original
 
         private val track = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.parseColor("#E5E7EB")
@@ -639,7 +639,7 @@ class MeterActivity : AppCompatActivity() {
         private var tempC: Double? = null
         private val minC = -20.0
         private val maxC = 120.0
-        private val radiusScale = 1.44f  // ~2x vs original
+        private val radiusScale = 1.9f  // ~2x vs original
 
         private val track = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.BLACK
