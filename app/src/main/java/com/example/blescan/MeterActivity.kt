@@ -662,8 +662,8 @@ class TemperatureGaugeView @JvmOverloads constructor(
     defStyleAttr: Int = 0
 ) : View(context, attrs, defStyleAttr) {
 
-    private var minValue = 0f
-    private var maxValue = 120f
+    private var minValue = -5f
+    private var maxValue = 95f
     private var value = 0f
 
     private var labelColor: Int = Color.WHITE
@@ -790,6 +790,40 @@ run {
 }
 /*__TEMP_POINTER_END__*/
 
+/*__TEMP_TICKS_START__*/
+// Ticks and labels at -5, 50, 95
+run {
+    val ticks = floatArrayOf(-5f, 50f, 95f)
+    val labelSize = size * 0.085f
+    val tickLen = size * 0.05f
+    val cx = width / 2f
+    val cy = height / 2f
+    val radius = size * 0.41f  // slightly outside the arc
+    textPaint.textSize = labelSize
+    textPaint.typeface = Typeface.DEFAULT_BOLD
+
+    for (t in ticks) {
+        val frac = ((t - minValue) / (maxValue - minValue)).coerceIn(0f, 1f)
+        val angDeg = startAngle + sweepAngle * frac
+        val ang = Math.toRadians(angDeg.toDouble())
+
+        val sx = cx + (radius - tickLen) * Math.cos(ang).toFloat()
+        val sy = cy + (radius - tickLen) * Math.sin(ang).toFloat()
+        val ex = cx + (radius) * Math.cos(ang).toFloat()
+        val ey = cy + (radius) * Math.sin(ang).toFloat()
+
+        // draw tick
+        canvas.drawLine(sx, sy, ex, ey, progressPaint)
+
+        // label, nudge outwards
+        val tx = cx + (radius + labelSize * 0.6f) * Math.cos(ang).toFloat()
+        val ty = cy + (radius + labelSize * 0.6f) * Math.sin(ang).toFloat() + labelSize * 0.33f
+        canvas.drawText(t.toInt().toString(), tx, ty, textPaint)
+    }
+}
+/*__TEMP_TICKS_END__*/
+
+
 
         // Labels 'C', 'N', 'H' along the arc
         labelPaint.color = labelColor
@@ -814,7 +848,8 @@ run {
         canvas.drawText(label, size / 2f, size * 0.60f, textPaint)
 
         textPaint.textSize = size * 0.18f
-        val valueText = "${value.toInt()}$suffix"
+        textPaint.typeface = Typeface.DEFAULT_BOLD
+val valueText = "${value.toInt()}$suffix"
         canvas.drawText(valueText, size / 2f, size * 0.45f, textPaint)
     }
 }
