@@ -48,6 +48,7 @@ class MeterActivity : AppCompatActivity() {
     private lateinit var btnScan: Button
     private lateinit var list: ListView
     private lateinit var gauge: ModernHalfGauge
+    private lateinit var tempGauge: TempHalfGauge
 
     private lateinit var tvVolt: TextView
     private lateinit var tvCurr: TextView
@@ -108,13 +109,21 @@ class MeterActivity : AppCompatActivity() {
         btnScan = Button(this).apply { text = "Start Scan (20s)" }
         list = ListView(this)
 
-        // Gauge style 3 (modern half-circle) with A1: 180° sweep, start at 180°
+        // SOC Gauge: make it bigger than before
         gauge = ModernHalfGauge(this).apply {
             layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, 380
+                LinearLayout.LayoutParams.MATCH_PARENT, 460   // bigger than previous 380
             ).apply { setMargins(16, 10, 16, 6) }
             setLabel("SOC")
             setPercent(0)
+        }
+
+        // Temperature Gauge: smaller, white background and black pointer/marks
+        tempGauge = TempHalfGauge(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, 220   // smaller
+            ).apply { setMargins(16, 12, 16, 6) }
+            setTempC(null) // start with no value
         }
 
         fun makeCard(title: String, colorHex: String): Pair<LinearLayout, Pair<TextView, TextView>> {
@@ -156,12 +165,16 @@ class MeterActivity : AppCompatActivity() {
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(12, 12, 12, 12)
+            setBackgroundColor(Color.WHITE) // white background as requested
             addView(logo)
             addView(bannerWarn)
             addView(btnScan)
             addView(list, LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
-            addView(gauge)          // gauge ABOVE parameters
+            // Gauges
+            addView(gauge)       // big SOC gauge
+            addView(tempGauge)   // smaller temperature gauge
+            // Cards
             addView(cardTemp)
             addView(cardVolt)
             addView(cardCurr)
@@ -280,6 +293,7 @@ class MeterActivity : AppCompatActivity() {
         // reset on each new scan
         devices.clear(); rows.clear(); adapterLv.clear(); advertisedName.clear()
         gauge.setPercent(0)
+        tempGauge.setTempC(null)
         tvVolt.text = "-"
         tvCurr.text = "-"
         tvName.text = ""
@@ -402,9 +416,10 @@ class MeterActivity : AppCompatActivity() {
         val current = iRaw / 100.0
         val soc = p[19].toInt() and 0xFF
 
-                // Temperature extraction per JBD (0x03) with null fallback
+        // Temperature extraction per JBD (0x03) with null fallback
         val dataStart = 4
         var tempText = "null"
+        var tempCValue: Double? = null
         if (p.size > dataStart + 22) {
             val ntcCount = p[dataStart + 22].toInt() and 0xFF
             val firstTempIdx = dataStart + 23
@@ -413,15 +428,17 @@ class MeterActivity : AppCompatActivity() {
                 val tempC = (tRaw - 2731) / 10.0
                 if (!tempC.isNaN() && tempC > -100 && tempC < 200) {
                     tempText = String.format("%.1f °C", tempC)
+                    tempCValue = tempC
                 }
             }
         }
 
-runOnUiThread {
+        runOnUiThread {
             gauge.setPercent(soc.coerceIn(0, 100))
             tvVolt.text = String.format("%.3f V", voltage)
             tvCurr.text = String.format("%.3f A", current)
             tvTemp.text = tempText
+            tempGauge.setTempC(tempCValue)
         }
     }
 
@@ -444,7 +461,7 @@ runOnUiThread {
         super.onDestroy()
     }
 
-    // ===== Gauge Style 3 (Modern half-circle): A1 sweep 180°, start at 180°, radius shrink 0.75, red pointer with glowing red shadow, blue SOC text upper-middle =====
+    // ===== SOC Gauge (Modern half-circle) =====
     class ModernHalfGauge(context: Context) : View(context) {
         private var pct = 0
         private var label = "SOC"
@@ -634,6 +651,158 @@ runOnUiThread {
             // Then draw the bright red pointer on top
             c.drawPath(path, pointer)
             c.drawCircle(cx, cy, 12f, pointer)
+        }
+    }
+
+    // ===== Temperature Gauge (black on white, smaller) =====
+    class TempHalfGauge(context: Context) : View(context) {
+        private var tempC: Double? = null
+        // typical automotive-style range
+        private val minC = -20.0
+        private val maxC = 120.0
+        private val radiusScale = 0.72f
+
+        private val track = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.BLACK
+            style = Paint.Style.STROKE
+            strokeWidth = 34f
+            strokeCap = Paint.Cap.ROUND
+        }
+        private val tick = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.BLACK
+            style = Paint.Style.STROKE
+            strokeWidth = 6f
+        }
+        private val tickBold = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.BLACK
+            style = Paint.Style.STROKE
+            strokeWidth = 8f
+        }
+        private val pointer = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.BLACK
+            style = Paint.Style.FILL
+        }
+        private val symbolPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.BLACK
+            style = Paint.Style.STROKE
+            strokeWidth = 6f
+        }
+
+        fun setTempC(value: Double?) { tempC = value; invalidate() }
+
+        override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+            val w = MeasureSpec.getSize(widthMeasureSpec)
+            val h = max((w * 0.42f).roundToInt(), 160)
+            setMeasuredDimension(w, h)
+        }
+
+        override fun onDraw(c: Canvas) {
+            super.onDraw(c)
+            // white background
+            c.drawColor(Color.WHITE)
+
+            val pad = 28f
+            val w = width.toFloat()
+            val h = height.toFloat()
+            val baseSize = min(w - pad * 2, h * 2.0f - pad * 2)
+            val size = baseSize * radiusScale
+            val rect = RectF(
+                (w - size) / 2f, pad + (baseSize - size) / 2f,
+                (w + size) / 2f, pad + (baseSize - size) / 2f + size
+            )
+
+            val startAngle = 180f
+            val sweepTotal = 180f
+
+            // track
+            c.drawArc(rect, startAngle, sweepTotal, false, track)
+
+            // tick marks: every 10°C, bold at min/mid/max
+            val midC = (minC + maxC) / 2.0
+            for (deg in listOf(minC, midC, maxC)) {
+                drawTickAt(c, rect, startAngle, sweepTotal, deg, tickBold)
+            }
+            var t = minC
+            while (t <= maxC + 1e-6) {
+                if (t != minC && t != midC && t != maxC) drawTickAt(c, rect, startAngle, sweepTotal, t, tick)
+                t += 10.0
+            }
+
+            // pointer
+            val value = tempC
+            if (value != null) {
+                val angle = valueToAngle(value, startAngle, sweepTotal)
+                drawPointer(c, rect, angle)
+            }
+
+            // little thermometer symbol near center
+            drawThermoSymbol(c, rect)
+        }
+
+        private fun drawTickAt(c: Canvas, rect: RectF, start: Float, sweep: Float, value: Double, p: Paint) {
+            val angle = valueToAngle(value, start, sweep).toDouble()
+            val cx = rect.centerX()
+            val cy = rect.centerY()
+            val rOuter = rect.width() / 2f
+            val rInner = rOuter - 26f
+            val sx = (cx + rInner * cos(angle)).toFloat()
+            val sy = (cy + rInner * sin(angle)).toFloat()
+            val ex = (cx + rOuter * cos(angle)).toFloat()
+            val ey = (cy + rOuter * sin(angle)).toFloat()
+            c.drawLine(sx, sy, ex, ey, p)
+        }
+
+        private fun valueToAngle(v: Double, start: Float, sweep: Float): Float {
+            val clamped = v.coerceIn(minC, maxC)
+            val frac = ((clamped - minC) / (maxC - minC)).toFloat()
+            return start + sweep * frac
+        }
+
+        private fun drawPointer(c: Canvas, rect: RectF, angleDeg: Float) {
+            val cx = rect.centerX()
+            val cy = rect.centerY()
+            val r = rect.width() / 2.15f
+            val a = Math.toRadians(angleDeg.toDouble())
+            val tipX = (cx + r * cos(a)).toFloat()
+            val tipY = (cy + r * sin(a)).toFloat()
+            val baseW = 18f
+            val back = 48f
+            val perp = a + Math.PI / 2
+            val b1x = (cx - back * cos(a) + baseW * cos(perp)).toFloat()
+            val b1y = (cy - back * sin(a) + baseW * sin(perp)).toFloat()
+            val b2x = (cx - back * cos(a) - baseW * cos(perp)).toFloat()
+            val b2y = (cy - back * sin(a) - baseW * sin(perp)).toFloat()
+            val path = Path()
+            path.moveTo(tipX, tipY)
+            path.lineTo(b1x, b1y)
+            path.lineTo(b2x, b2y)
+            path.close()
+            c.drawPath(path, pointer)
+            c.drawCircle(cx, cy, 12f, pointer)
+        }
+
+        private fun drawThermoSymbol(c: Canvas, rect: RectF) {
+            val cx = rect.centerX()
+            val cy = rect.centerY()
+            // simple thermometer with 3 waves like icon
+            val baseY = cy + rect.height() * 0.20f
+            val waveAmp = 6f
+            val waveLen = rect.width() * 0.25f
+            val startX = cx - waveLen / 2f
+            val path = Path()
+            for (i in 0..2) {
+                val y = baseY + i * 10f
+                path.moveTo(startX, y)
+                path.rQuadTo(waveLen / 4f, -waveAmp, waveLen / 2f, 0f)
+                path.rQuadTo(waveLen / 4f, waveAmp, waveLen / 2f, 0f)
+            }
+            c.drawPath(path, symbolPaint)
+
+            // thermometer stem
+            val stemH = 36f
+            val stemX = cx
+            c.drawLine(stemX, cy - 8f, stemX, cy - 8f - stemH, symbolPaint)
+            c.drawCircle(stemX, cy - 8f, 8f, symbolPaint)
         }
     }
 }
