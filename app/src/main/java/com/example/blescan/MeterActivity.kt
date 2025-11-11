@@ -114,7 +114,7 @@ class MeterActivity : AppCompatActivity() {
         // Gauges container: overlay temp inside SOC (right side) to save space for the device list
         val gauges = FrameLayout(this).apply {
             layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, 440
+                LinearLayout.LayoutParams.MATCH_PARENT, 460
             ).apply { setMargins(12, 6, 12, 6) }
             setBackgroundColor(Color.WHITE)
         }
@@ -128,13 +128,14 @@ class MeterActivity : AppCompatActivity() {
         gauges.addView(socGauge)
         tempGauge = TempHalfGauge(this).apply {
             val w = resources.displayMetrics.widthPixels
-            val size = (min(w, 900) * 0.36f).toInt()
+            val size = (min(w, 900) * 0.42f).toInt() // slightly larger footprint
             layoutParams = FrameLayout.LayoutParams(size, size, Gravity.END or Gravity.CENTER_VERTICAL).apply {
                 rightMargin = 24
             }
-            setTempC(null)
+            setTempC(null) // default shows cold needle
         }
         gauges.addView(tempGauge)
+        tempGauge.bringToFront() // ensure overlay is above SOC gauge
 
         fun makeCard(title: String, colorHex: String): Pair<LinearLayout, Pair<TextView, TextView>> {
             val card = LinearLayout(this).apply {
@@ -300,7 +301,7 @@ class MeterActivity : AppCompatActivity() {
         // reset on each new scan
         devices.clear(); rows.clear(); adapterLv.clear(); advertisedName.clear()
         socGauge.setPercent(0)
-        tempGauge.setTempC(null)
+        tempGauge.setTempC(null) // default cold needle visible
         tvVolt.text = "-"
         tvCurr.text = "-"
         tvName.text = ""
@@ -469,7 +470,8 @@ class MeterActivity : AppCompatActivity() {
     class ModernHalfGauge(context: Context) : View(context) {
         private var pct = 0
         private var label = "SOC"
-        private val radiusScale = 1.125f    // enlarged 1.5×
+        // ~1.4x larger
+        private val radiusScale = 1.05f
 
         private val track = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.parseColor("#E5E7EB")
@@ -638,7 +640,8 @@ class MeterActivity : AppCompatActivity() {
         private var tempC: Double? = null
         private val minC = -20.0
         private val maxC = 120.0
-        private val radiusScale = 1.08f     // enlarged 1.5×
+        // ~2x larger
+        private val radiusScale = 1.44f
 
         private val track = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.BLACK
@@ -649,33 +652,38 @@ class MeterActivity : AppCompatActivity() {
         private val tick = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.BLACK
             style = Paint.Style.STROKE
-            strokeWidth = 6f
+            strokeWidth = 7f
         }
         private val tickBold = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.BLACK
             style = Paint.Style.STROKE
-            strokeWidth = 8f
+            strokeWidth = 9f
         }
         private val pointer = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.BLACK
+            color = Color.RED   // red needle
             style = Paint.Style.FILL
         }
         private val markBlue = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.parseColor("#1E3A8A")
+            color = Color.parseColor("#1E3A8A") // cold blue marker
             style = Paint.Style.STROKE
             strokeWidth = 28f
             strokeCap = Paint.Cap.BUTT
         }
         private val markRed = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.parseColor("#DC2626")
+            color = Color.parseColor("#DC2626") // hot red marker
             style = Paint.Style.STROKE
             strokeWidth = 28f
             strokeCap = Paint.Cap.BUTT
         }
         private val symbolPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.BLACK
+            color = Color.RED   // thermometer icon in red
             style = Paint.Style.STROKE
-            strokeWidth = 6f
+            strokeWidth = 7f
+        }
+        private val wavePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#2563EB") // wave blue
+            style = Paint.Style.STROKE
+            strokeWidth = 8f
         }
 
         fun setTempC(value: Double?) { tempC = value; invalidate() }
@@ -716,8 +724,10 @@ class MeterActivity : AppCompatActivity() {
                 t += 10.0
             }
 
-            tempC?.let { value -> drawPointer(c, rect, valueToAngle(value, startAngle, sweepTotal)) }
-            drawThermoSymbol(c, rect)
+            // Always show a needle: use cold end when temperature is null
+            val currentValue = tempC ?: minC
+            drawPointer(c, rect, valueToAngle(currentValue, startAngle, sweepTotal))
+            drawThermoSymbolWithBlueWaves(c, rect)
         }
 
         private fun drawTickAt(c: Canvas, rect: RectF, start: Float, sweep: Float, value: Double, p: Paint) {
@@ -762,25 +772,31 @@ class MeterActivity : AppCompatActivity() {
             c.drawCircle(cx, cy, 10f, pointer)
         }
 
-        private fun drawThermoSymbol(c: Canvas, rect: RectF) {
+        private fun drawThermoSymbolWithBlueWaves(c: Canvas, rect: RectF) {
             val cx = rect.centerX()
             val cy = rect.centerY()
-            val baseY = cy + rect.height() * 0.20f
-            val waveAmp = 5f
-            val waveLen = rect.width() * 0.22f
-            val startX = cx - waveLen * 0.9f
-            val path = Path()
-            for (i in 0..2) {
-                val y = baseY + i * 9f
-                path.moveTo(startX, y)
-                path.rQuadTo(waveLen / 4f, -waveAmp, waveLen / 2f, 0f)
-                path.rQuadTo(waveLen / 4f, waveAmp, waveLen / 2f, 0f)
-            }
-            c.drawPath(path, symbolPaint)
+
+            // thermometer (red)
             val stemH = 34f
-            val stemX = cx - rect.width()*0.22f
-            c.drawLine(stemX, cy - 6f, stemX, cy - 6f - stemH, symbolPaint)
-            c.drawCircle(stemX, cy - 6f, 7f, symbolPaint)
+            val bulbY = cy - 6f
+            val stemX = cx - rect.width() * 0.22f
+            c.drawLine(stemX, bulbY, stemX, bulbY - stemH, symbolPaint)
+            c.drawCircle(stemX, bulbY, 7f, symbolPaint)
+
+            // waves below (blue)
+            val waveLen = rect.width() * 0.28f
+            val startX = stemX - waveLen * 0.55f
+            val baseY = bulbY + 18f
+            val amp = 6f
+            repeat(3) { i ->
+                val y = baseY + i * 10f
+                val path = Path().apply {
+                    moveTo(startX, y)
+                    rQuadTo(waveLen / 4f, -amp, waveLen / 2f, 0f)
+                    rQuadTo(waveLen / 4f,  amp, waveLen / 2f, 0f)
+                }
+                c.drawPath(path, wavePaint)
+            }
         }
     }
 }
