@@ -110,7 +110,7 @@ class MeterActivity : AppCompatActivity() {
         btnScan = Button(this).apply { text = "Start Scan (20s)" }
         list = ListView(this)
 
-        // ===== Dashboard cluster: SOC big arc + temp gauge centered inside =====
+        // ===== Dashboard cluster: SOC big arc + centered temp gauge inside =====
         val gauges = FrameLayout(this).apply {
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 520
@@ -126,12 +126,15 @@ class MeterActivity : AppCompatActivity() {
         }
         gauges.addView(socGauge)
 
-        // Temp gauge centered inside SOC; size ~40% of screen width
+        // Temp gauge slightly smaller and lower, better visual alignment inside SOC arc
         tempGauge = TempHalfGauge(this).apply {
             val w = resources.displayMetrics.widthPixels
-            val size = (min(w, 1000) * 0.40f).toInt()
-            layoutParams = FrameLayout.LayoutParams(size, size, Gravity.CENTER)
-            setTempC(null) // default red needle at cold
+            val size = (min(w, 1200) * 0.36f).toInt() // 36% instead of 40%
+            layoutParams = FrameLayout.LayoutParams(size, size).apply {
+                gravity = Gravity.CENTER_HORIZONTAL
+                topMargin = 45   // push it down visually (~45dp)
+            }
+            setTempC(null)
         }
         gauges.addView(tempGauge)
         tempGauge.bringToFront()
@@ -462,15 +465,14 @@ class MeterActivity : AppCompatActivity() {
         super.onDestroy()
     }
 
-    // ===== Gauge Style 3 (Modern half-circle) — SOC =====
+    // ===== SOC Gauge (half-circle) =====
     class ModernHalfGauge(context: Context) : View(context) {
         private var pct = 0
         private var label = "SOC"
-        // ~1.4x
-        private val radiusScale = 1.05f
+        private val radiusScale = 1.05f // ~1.4x
 
         private val track = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.parseColor("#E5E7EB") // gray-200
+            color = Color.parseColor("#E5E7EB")
             style = Paint.Style.STROKE
             strokeWidth = 30f
             strokeCap = Paint.Cap.ROUND
@@ -630,26 +632,12 @@ class MeterActivity : AppCompatActivity() {
         }
     }
 
-    // ===== Temperature Gauge (overlay, car-style, with animated waves) =====
+    // ===== Temperature Gauge (centered) =====
     class TempHalfGauge(context: Context) : View(context) {
         private var tempC: Double? = null
         private val minC = -20.0
         private val maxC = 120.0
-        private val radiusScale = 1.44f // overall gauge scale
-
-        // Wave animation params
-        private var wavePhase = 0f
-        private var waveAmpFactor = 1f
-        private var animRunning = false
-        private val animRunnable = object : Runnable {
-            override fun run() {
-                // advance phase; keep small amplitude pulse
-                wavePhase += 0.08f
-                waveAmpFactor = 1f + 0.06f * sin(wavePhase.toDouble()).toFloat()
-                invalidate()
-                postOnAnimation(this)
-            }
-        }
+        private val radiusScale = 1.44f // visual stroke proportion
 
         private val track = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.BLACK
@@ -684,31 +672,17 @@ class MeterActivity : AppCompatActivity() {
             strokeCap = Paint.Cap.BUTT
         }
         private val symbolPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.BLACK // thermometer icon black
+            color = Color.BLACK
             style = Paint.Style.STROKE
             strokeWidth = 8f
         }
         private val wavePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.parseColor("#2563EB") // blue
+            color = Color.parseColor("#2563EB")
             style = Paint.Style.STROKE
             strokeWidth = 9f
         }
 
         fun setTempC(value: Double?) { tempC = value; invalidate() }
-
-        override fun onAttachedToWindow() {
-            super.onAttachedToWindow()
-            if (!animRunning) {
-                animRunning = true
-                postOnAnimation(animRunnable)
-            }
-        }
-
-        override fun onDetachedFromWindow() {
-            super.onDetachedFromWindow()
-            animRunning = false
-            removeCallbacks(animRunnable)
-        }
 
         override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
             val w = MeasureSpec.getSize(widthMeasureSpec)
@@ -748,7 +722,7 @@ class MeterActivity : AppCompatActivity() {
 
             val currentValue = tempC ?: minC
             drawPointer(c, rect, valueToAngle(currentValue, startAngle, sweepTotal))
-            drawThermoSymbolWithAnimatedWaves(c, rect)
+            drawThermoSymbolWithBlueWaves(c, rect)
         }
 
         private fun drawTickAt(c: Canvas, rect: RectF, start: Float, sweep: Float, value: Double, p: Paint) {
@@ -773,7 +747,7 @@ class MeterActivity : AppCompatActivity() {
         private fun drawPointer(c: Canvas, rect: RectF, angleDeg: Float) {
             val cx = rect.centerX()
             val cy = rect.centerY()
-            val r = rect.width() / 1.9f   // long slender needle
+            val r = rect.width() / 1.9f
             val a = Math.toRadians(angleDeg.toDouble())
             val tipX = (cx + r * cos(a)).toFloat()
             val tipY = (cy + r * sin(a)).toFloat()
@@ -793,35 +767,26 @@ class MeterActivity : AppCompatActivity() {
             c.drawCircle(cx, cy, 10f, pointer)
         }
 
-        // Centered black thermometer + animated blue waves below
-        private fun drawThermoSymbolWithAnimatedWaves(c: Canvas, rect: RectF) {
+        private fun drawThermoSymbolWithBlueWaves(c: Canvas, rect: RectF) {
             val cx = rect.centerX()
             val cy = rect.centerY()
 
-            // Thermometer
             val stemH = 48f
             val bulbY = cy + 4f
             val stemX = cx
-            c.drawLine(stemX, bulbY, stemX, bulbY - stemH, symbolPaint) // stem
-            c.drawCircle(stemX, bulbY, 11f, symbolPaint)                // bulb
+            c.drawLine(stemX, bulbY, stemX, bulbY - stemH, symbolPaint)
+            c.drawCircle(stemX, bulbY, 11f, symbolPaint)
 
-            // Animated waves (phase & gentle amplitude pulse)
             val waveLen = rect.width() * 0.36f
             val startX = cx - waveLen / 2f
             val baseY = bulbY + 22f
-            val amp = 7f * waveAmpFactor
-            val phasePx = (waveLen / (2f * Math.PI).toFloat()) * wavePhase // horizontal phase shift in px
-
-            // Draw 3 sine-like strokes using quad segments
+            val amp = 7f
             repeat(3) { i ->
                 val y = baseY + i * 11f
-                val path = Path()
-                val segments = 20
-                for (s in 0..segments) {
-                    val x = startX + (waveLen / segments) * s
-                    val t = ((x - startX) + phasePx) / waveLen * (2f * Math.PI).toFloat()
-                    val yy = y + (sin(t.toDouble()).toFloat() * amp)
-                    if (s == 0) path.moveTo(x, yy) else path.lineTo(x, yy)
+                val path = Path().apply {
+                    moveTo(startX, y)
+                    rQuadTo(waveLen / 4f, -amp, waveLen / 2f, 0f)
+                    rQuadTo(waveLen / 4f,  amp, waveLen / 2f, 0f)
                 }
                 c.drawPath(path, wavePaint)
             }
