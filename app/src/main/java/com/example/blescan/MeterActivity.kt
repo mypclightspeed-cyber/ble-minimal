@@ -662,7 +662,7 @@ class MeterActivity : AppCompatActivity() {
         private val maxTemp = 95f
         private val middleTemp = 50f
 
-        private val radiusScale = 0.9f
+        private val radiusScale = 1f
 
         private val track = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.parseColor("#E5E7EB") // gray-200
