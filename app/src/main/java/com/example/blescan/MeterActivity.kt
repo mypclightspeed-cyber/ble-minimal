@@ -109,6 +109,14 @@ class MeterActivity : AppCompatActivity() {
         btnScan = Button(this).apply { text = "Start Scan (20s)" }
         list = ListView(this)
 
+        // Add spacer above gauges to move them down
+        val topSpacer = View(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, 50 // 50dp spacer above gauges
+            )
+            setBackgroundColor(Color.TRANSPARENT)
+        }
+
         // Create horizontal container for gauges - 70% SOC, 30% Temp
         val gaugeContainer = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -200,7 +208,7 @@ class MeterActivity : AppCompatActivity() {
                 val lp = LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
                 )
-                lp.setMargins(16, 20, 16, 10)
+                lp.setMargins(16, 40, 16, 10) // Increased top margin from 20 to 40 for more space
                 layoutParams = lp
                 elevation = 6f
             }
@@ -243,6 +251,7 @@ class MeterActivity : AppCompatActivity() {
             addView(btnScan)
             addView(list, LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 300))
+            addView(topSpacer) // Added spacer to move gauges down
             addView(gaugeContainer)
             addView(spacer)
             addView(cardVolt)
