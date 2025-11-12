@@ -123,7 +123,8 @@ class MeterActivity : AppCompatActivity() {
             orientation = LinearLayout.VERTICAL
             layoutParams = LinearLayout.LayoutParams(
                 0, LinearLayout.LayoutParams.MATCH_PARENT, 7f // 70% width
-            ).apply { setMargins(4, 0, 4, 0) }
+            ).apply { setMargins(4, 0, 4, 0)
+            setBackgroundColor(Color.TRANSPARENT)}
         }
 
         // SOC Label
@@ -156,7 +157,8 @@ class MeterActivity : AppCompatActivity() {
             orientation = LinearLayout.VERTICAL
             layoutParams = LinearLayout.LayoutParams(
                 0, LinearLayout.LayoutParams.MATCH_PARENT, 3f // 30% width
-            ).apply { setMargins(4, 0, 4, 0) }
+            ).apply { setMargins(4, 0, 4, 0) 
+            setBackgroundColor(Color.TRANSPARENT)}
         }
 
         // Temperature Label
