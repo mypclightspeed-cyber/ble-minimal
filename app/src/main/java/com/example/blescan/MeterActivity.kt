@@ -108,37 +108,88 @@ class MeterActivity : AppCompatActivity() {
         btnScan = Button(this).apply { text = "Start Scan (20s)" }
         list = ListView(this)
 
-        // Create horizontal container for gauges
+        // Create vertical container for gauges with temperature on top
         val gaugeContainer = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
+            orientation = LinearLayout.VERTICAL
             layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, 500 // Increased height for larger SOC gauge
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
             ).apply { setMargins(16, 10, 16, 6) }
-            weightSum = 2f
         }
 
-        // SOC Gauge (1.5x larger)
-        gaugeSOC = ModernHalfGauge(this).apply {
+        // Temperature Gauge Container (upper part)
+        val tempContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
             layoutParams = LinearLayout.LayoutParams(
-                0, LinearLayout.LayoutParams.MATCH_PARENT, 1f
-            ).apply { setMargins(4, 0, 4, 0) }
-            setLabel("SOC")
-            setPercent(0)
-            setScaleFactor(1.5f) // 1.5x scale for SOC
+                LinearLayout.LayoutParams.MATCH_PARENT, 0
+            ).apply { 
+                weight = 1f
+                setMargins(4, 0, 4, 0) 
+            }
+        }
+
+        // Temperature Label
+        val tempLabel = TextView(this).apply {
+            text = "Temperature"
+            textSize = 20f
+            setTypeface(typeface, Typeface.BOLD)
+            setTextColor(Color.BLACK)
+            gravity = Gravity.CENTER
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { setMargins(0, 8, 0, 8) }
         }
 
         // Temperature Gauge (normal size)
         gaugeTemp = ModernHalfGauge(this).apply {
             layoutParams = LinearLayout.LayoutParams(
-                0, LinearLayout.LayoutParams.MATCH_PARENT, 1f
-            ).apply { setMargins(4, 0, 4, 0) }
+                LinearLayout.LayoutParams.MATCH_PARENT, 350
+            )
             setLabel("TEMP")
             setPercent(0)
             setScaleFactor(1.0f) // Normal scale for temperature
         }
 
-        gaugeContainer.addView(gaugeSOC)
-        gaugeContainer.addView(gaugeTemp)
+        tempContainer.addView(tempLabel)
+        tempContainer.addView(gaugeTemp)
+
+        // SOC Gauge Container (lower part)
+        val socContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, 0
+            ).apply { 
+                weight = 1.5f
+                setMargins(4, 0, 4, 0) 
+            }
+        }
+
+        // SOC Label
+        val socLabel = TextView(this).apply {
+            text = "State of Charge"
+            textSize = 20f
+            setTypeface(typeface, Typeface.BOLD)
+            setTextColor(Color.BLACK)
+            gravity = Gravity.CENTER
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { setMargins(0, 8, 0, 8) }
+        }
+
+        // SOC Gauge (1.5x larger)
+        gaugeSOC = ModernHalfGauge(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, 500
+            )
+            setLabel("SOC")
+            setPercent(0)
+            setScaleFactor(1.5f) // 1.5x scale for SOC
+        }
+
+        socContainer.addView(socLabel)
+        socContainer.addView(gaugeSOC)
+
+        gaugeContainer.addView(tempContainer)
+        gaugeContainer.addView(socContainer)
 
         fun makeCard(title: String, colorHex: String): Pair<LinearLayout, Pair<TextView, TextView>> {
             val card = LinearLayout(this).apply {
@@ -182,7 +233,7 @@ class MeterActivity : AppCompatActivity() {
             addView(btnScan)
             addView(list, LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
-            addView(gaugeContainer)  // Both gauges side by side
+            addView(gaugeContainer)  // Gauges in vertical layout
             addView(cardVolt)
             addView(cardCurr)
             addView(cardName)
@@ -467,7 +518,7 @@ class MeterActivity : AppCompatActivity() {
         super.onDestroy()
     }
 
-    // ===== MODIFIED ModernHalfGauge class with 1.5x scale for SOC and temperature in °C =====
+    // ===== MODIFIED ModernHalfGauge class with values inside arc =====
     class ModernHalfGauge(context: Context) : View(context) {
         private var pct = 0
         private var label = "SOC"
@@ -510,25 +561,19 @@ class MeterActivity : AppCompatActivity() {
             style = Paint.Style.FILL
             setShadowLayer(25f, 0f, 0f, Color.parseColor("#FFEF4444")) // Strong red glow
         }
-        // SOC text — bigger and blue, drawn upper-middle with extra gap
-        private val socPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.parseColor("#2563EB") // blue
-            textAlign = Paint.Align.LEFT
-            textSize = 54f
-            typeface = Typeface.create(Typeface.DEFAULT_BOLD, Typeface.BOLD)
-        }
-        private val pctPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.parseColor("#2563EB") // blue
-            textAlign = Paint.Align.LEFT
-            textSize = 54f
-            typeface = Typeface.create(Typeface.DEFAULT_BOLD, Typeface.BOLD)
-        }
-        // Temperature text
-        private val tempPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.parseColor("#DC2626") // red for temperature
+        // Value text inside arc - larger and centered
+        private val valuePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#1F2937") // dark gray
             textAlign = Paint.Align.CENTER
-            textSize = 54f
+            textSize = 64f
             typeface = Typeface.create(Typeface.DEFAULT_BOLD, Typeface.BOLD)
+        }
+        // Unit text inside arc
+        private val unitPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#6B7280") // gray
+            textAlign = Paint.Align.CENTER
+            textSize = 32f
+            typeface = Typeface.DEFAULT_BOLD
         }
         // Arc labels — large
         private val textLabel = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -618,27 +663,34 @@ class MeterActivity : AppCompatActivity() {
             // labels at 0/25/50/75/100
             drawLabels(c, rect, startAngle, sweepTotal)
 
-            // For temperature gauge, show actual value in °C
+            // Draw value inside the arc - centered
+            val centerX = w / 2f
+            val centerY = rect.centerY() + rect.height() * 0.15f // Position inside arc
+
             if (label == "TEMP") {
-                val tempText = "${actualValue}°C"
-                val y = rect.centerY() - rect.height()*0.18f
-                val fm = tempPaint.fontMetrics
-                val baseline = y - (fm.ascent + fm.descent)/2f
-                c.drawText(tempText, w / 2f, baseline, tempPaint)
+                // Draw temperature value and unit
+                val tempText = "$actualValue"
+                val unitText = "°C"
+                
+                // Draw value
+                val valueY = centerY
+                c.drawText(tempText, centerX, valueY, valuePaint)
+                
+                // Draw unit below value
+                val unitY = valueY + unitPaint.textSize + 10f
+                c.drawText(unitText, centerX, unitY, unitPaint)
             } else {
-                // SOC text in upper-middle: draw "SOC" and "<pct>%" with extra gap, centered
-                val gap = 44f // extra spacing
-                val socText = label
-                val pctText = "$pct%"
-                val socW = socPaint.measureText(socText)
-                val pctW = pctPaint.measureText(pctText)
-                val totalW = socW + gap + pctW
-                val y = rect.centerY() - rect.height()*0.18f  // upper placement
-                val startX = (w - totalW) / 2f
-                val fm = socPaint.fontMetrics
-                val baseline = y - (fm.ascent + fm.descent)/2f
-                c.drawText(socText, startX, baseline, socPaint)
-                c.drawText(pctText, startX + socW + gap, baseline, pctPaint)
+                // Draw SOC value and unit
+                val socText = "$pct"
+                val unitText = "%"
+                
+                // Draw value
+                val valueY = centerY
+                c.drawText(socText, centerX, valueY, valuePaint)
+                
+                // Draw unit below value
+                val unitY = valueY + unitPaint.textSize + 10f
+                c.drawText(unitText, centerX, unitY, unitPaint)
             }
         }
 
