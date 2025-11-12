@@ -712,7 +712,7 @@ class MeterActivity : AppCompatActivity() {
         private fun drawLabels(c: Canvas, rect: RectF, start: Float, sweep: Float) {
             val cx = rect.centerX()
             val cy = rect.centerY()
-            val r = rect.width() / 2f + 24f
+            val r = rect.width() / 2f -40f
             
             if (label == "SOC") {
                 val marks = listOf(0, 25, 50, 75, 100)
