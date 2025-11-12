@@ -109,59 +109,21 @@ class MeterActivity : AppCompatActivity() {
         btnScan = Button(this).apply { text = "Start Scan (20s)" }
         list = ListView(this)
 
-        // Create vertical container for gauges with temperature on top
+        // Create horizontal container for gauges - 70% SOC, 30% Temp
         val gaugeContainer = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
+            orientation = LinearLayout.HORIZONTAL
             layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+                LinearLayout.LayoutParams.MATCH_PARENT, 500
             ).apply { setMargins(16, 10, 16, 6) }
+            weightSum = 10f // 10 parts total
         }
 
-        // Temperature Gauge Container (upper part)
-        val tempContainer = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, 0
-            ).apply { 
-                weight = 1f
-                setMargins(4, 0, 4, 0) 
-            }
-        }
-
-        // Temperature Label
-        val tempLabel = TextView(this).apply {
-            text = "Temperature"
-            textSize = 20f
-            setTypeface(typeface, Typeface.BOLD)
-            setTextColor(Color.BLACK)
-            gravity = Gravity.CENTER
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { setMargins(0, 8, 0, 8) }
-        }
-
-        // Temperature Gauge (normal size)
-        gaugeTemp = ModernHalfGauge(this).apply {
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, 350
-            )
-            setLabel("TEMP")
-            setPercent(0)
-            setScaleFactor(1.0f) // Normal scale for temperature
-        }
-
-        tempContainer.addView(tempLabel)
-        tempContainer.addView(gaugeTemp)
-
-        // SOC Gauge Container (lower part)
+        // SOC Gauge Container (70% width)
         val socContainer = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, 0
-            ).apply { 
-                weight = 1.5f
-                setMargins(4, 0, 4, 0) 
-            }
+                0, LinearLayout.LayoutParams.MATCH_PARENT, 7f // 70% width
+            ).apply { setMargins(4, 0, 4, 0) }
         }
 
         // SOC Label
@@ -176,10 +138,10 @@ class MeterActivity : AppCompatActivity() {
             ).apply { setMargins(0, 8, 0, 8) }
         }
 
-        // SOC Gauge (1.5x larger)
+        // SOC Gauge (1.5x larger - 70% width)
         gaugeSOC = ModernHalfGauge(this).apply {
             layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, 500
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.MATCH_PARENT
             )
             setLabel("SOC")
             setPercent(0)
@@ -189,8 +151,41 @@ class MeterActivity : AppCompatActivity() {
         socContainer.addView(socLabel)
         socContainer.addView(gaugeSOC)
 
-        gaugeContainer.addView(tempContainer)
+        // Temperature Gauge Container (30% width)
+        val tempContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.MATCH_PARENT, 3f // 30% width
+            ).apply { setMargins(4, 0, 4, 0) }
+        }
+
+        // Temperature Label
+        val tempLabel = TextView(this).apply {
+            text = "Temperature"
+            textSize = 20f
+            setTypeface(typeface, Typeface.BOLD)
+            setTextColor(Color.BLACK)
+            gravity = Gravity.CENTER
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { setMargins(0, 8, 0, 8) }
+        }
+
+        // Temperature Gauge (normal size - 30% width)
+        gaugeTemp = ModernHalfGauge(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.MATCH_PARENT
+            )
+            setLabel("TEMP")
+            setPercent(0)
+            setScaleFactor(1.0f) // Normal scale for temperature
+        }
+
+        tempContainer.addView(tempLabel)
+        tempContainer.addView(gaugeTemp)
+
         gaugeContainer.addView(socContainer)
+        gaugeContainer.addView(tempContainer)
 
         fun makeCard(title: String, colorHex: String): Pair<LinearLayout, Pair<TextView, TextView>> {
             val card = LinearLayout(this).apply {
@@ -234,7 +229,7 @@ class MeterActivity : AppCompatActivity() {
             addView(btnScan)
             addView(list, LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
-            addView(gaugeContainer)  // Gauges in vertical layout
+            addView(gaugeContainer)  // Gauges in horizontal layout
             addView(cardVolt)
             addView(cardCurr)
             addView(cardName)
