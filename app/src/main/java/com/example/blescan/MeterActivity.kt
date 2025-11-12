@@ -518,7 +518,7 @@ class MeterActivity : AppCompatActivity() {
         super.onDestroy()
     }
 
-    // ===== MODIFIED ModernHalfGauge class with FIXED temperature gauge color =====
+    // ===== MODIFIED ModernHalfGauge class with TEMPERATURE COLOR ZONES =====
     class ModernHalfGauge(context: Context) : View(context) {
         private var pct = 0
         private var label = "SOC"
@@ -636,10 +636,10 @@ class MeterActivity : AppCompatActivity() {
             // ticks (bold at 0/50/100, thin each 10%)
             drawTicks(c, rect, startAngle, sweepTotal)
 
-            // FIXED: Use consistent color for temperature gauge progress
+            // Set progress color based on gauge type and value
             if (label == "TEMP") {
-                // Temperature gauge - always use blue color
-                progress.color = Color.parseColor("#3B82F6") // Consistent blue color
+                // Temperature gauge - color zones based on actual temperature
+                progress.color = getTemperatureColor(actualValue)
             } else {
                 // SOC gauge - use color coding based on percentage
                 progress.color = when {
@@ -696,6 +696,14 @@ class MeterActivity : AppCompatActivity() {
                 // Draw unit below value
                 val unitY = valueY + unitPaint.textSize + 10f
                 c.drawText(unitText, centerX, unitY, unitPaint)
+            }
+        }
+
+        private fun getTemperatureColor(temp: Int): Int {
+            return when {
+                temp <= 15 -> Color.parseColor("#60A5FA") // Light blue for -5°C to +15°C
+                temp >= 65 -> Color.parseColor("#EF4444") // Red for 65°C to 95°C
+                else -> Color.parseColor("#10B981") // Green for 16°C to 64°C
             }
         }
 
