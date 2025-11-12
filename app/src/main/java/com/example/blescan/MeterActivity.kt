@@ -113,9 +113,10 @@ class MeterActivity : AppCompatActivity() {
         val gaugeContainer = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, 500
+                LinearLayout.LayoutParams.MATCH_PARENT, 450 // Reduced height
             ).apply { setMargins(16, 10, 16, 6) }
             weightSum = 10f // 10 parts total
+            setBackgroundColor(Color.TRANSPARENT) // TRANSPARENT
         }
 
         // SOC Gauge Container (70% width)
@@ -124,7 +125,7 @@ class MeterActivity : AppCompatActivity() {
             layoutParams = LinearLayout.LayoutParams(
                 0, LinearLayout.LayoutParams.MATCH_PARENT, 7f // 70% width
             ).apply { setMargins(4, 0, 4, 0) }
-            setBackgroundColor(Color.TRANSPARENT) // TRANSPARENT BACKGROUND
+            setBackgroundColor(Color.TRANSPARENT) // TRANSPARENT
         }
 
         // SOC Label
@@ -158,7 +159,7 @@ class MeterActivity : AppCompatActivity() {
             layoutParams = LinearLayout.LayoutParams(
                 0, LinearLayout.LayoutParams.MATCH_PARENT, 3f // 30% width
             ).apply { setMargins(4, 0, 4, 0) }
-            setBackgroundColor(Color.TRANSPARENT) // TRANSPARENT BACKGROUND
+            setBackgroundColor(Color.TRANSPARENT) // TRANSPARENT
         }
 
         // Temperature Label
@@ -197,7 +198,7 @@ class MeterActivity : AppCompatActivity() {
                 val lp = LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
                 )
-                lp.setMargins(16, 10, 16, 10)
+                lp.setMargins(16, 20, 16, 10) // Increased top margin for more space
                 layoutParams = lp
                 elevation = 6f
             }
@@ -223,6 +224,14 @@ class MeterActivity : AppCompatActivity() {
         tvCurr = pairCurr.second
         tvName = pairName.second
 
+        // Add spacer between gauges and cards
+        val spacer = View(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, 30 // 30dp spacer
+            )
+            setBackgroundColor(Color.TRANSPARENT)
+        }
+
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(12, 12, 12, 12)
@@ -232,6 +241,7 @@ class MeterActivity : AppCompatActivity() {
             addView(list, LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 300)) // Reduced height
             addView(gaugeContainer)  // Gauges in horizontal layout
+            addView(spacer) // Added spacer for more space
             addView(cardVolt)
             addView(cardCurr)
             addView(cardName)
