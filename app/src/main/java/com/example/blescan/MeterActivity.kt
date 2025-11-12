@@ -105,7 +105,7 @@ class MeterActivity : AppCompatActivity() {
             visibility = View.GONE
         }
 
-        btnScan = Button(this).apply { text = "Start Scan BM" }
+        btnScan = Button(this).apply { text = "Start Scan BMS" }
         list = ListView(this)
 
         // Main container for gauges - changed to vertical layout
@@ -738,7 +738,7 @@ class MeterActivity : AppCompatActivity() {
 
         override fun onDraw(c: Canvas) {
             super.onDraw(c)
-            val pad = 66f
+            val pad = 26f
             val w = width.toFloat()
             val h = height.toFloat()
             val baseSize = min(w - pad * 2, h * 2.0f - pad * 2)
