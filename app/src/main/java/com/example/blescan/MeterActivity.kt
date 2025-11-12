@@ -105,14 +105,14 @@ class MeterActivity : AppCompatActivity() {
             visibility = View.GONE
         }
 
-        btnScan = Button(this).apply { text = "Start Scan BMS" }
+        btnScan = Button(this).apply { text = "Start Scan BM" }
         list = ListView(this)
 
         // Main container for gauges
         val gaugeContainer = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, 500
+                LinearLayout.LayoutParams.MATCH_PARENT, 200
             ).apply { setMargins(16, 10, 16, 6) }
             weightSum = 3f
         }
