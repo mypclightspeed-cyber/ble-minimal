@@ -105,46 +105,45 @@ class MeterActivity : AppCompatActivity() {
             visibility = View.GONE
         }
 
-        btnScan = Button(this).apply { text = "Start Scan BMS" }
+        btnScan = Button(this).apply { text = "Start Scan BM" }
         list = ListView(this)
 
-        // Main container for gauges - changed to vertical layout
-        val gaugeContainer = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
+        // Main container for gauges - using RelativeLayout for precise positioning
+        val gaugeContainer = RelativeLayout(this).apply {
             layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+                LinearLayout.LayoutParams.MATCH_PARENT, 380
             ).apply { setMargins(16, 10, 16, 6) }
         }
 
-        // Horizontal container for both gauges to center them
-        val gaugesHorizontalContainer = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, 380
-            )
-            weightSum = 3f
-        }
-
-        // SOC Gauge - takes 2/3 of space
+        // SOC Gauge - full size
         gauge = ModernHalfGauge(this).apply {
-            layoutParams = LinearLayout.LayoutParams(
-                0, LinearLayout.LayoutParams.MATCH_PARENT, 2f
+            id = View.generateViewId()
+            layoutParams = RelativeLayout.LayoutParams(
+                RelativeLayout.LayoutParams.MATCH_PARENT,
+                RelativeLayout.LayoutParams.MATCH_PARENT
             )
             setLabel("SOC")
             setPercent(0)
         }
 
-        // Temperature Gauge - takes 1/3 of space but centered
+        // Temperature Gauge - smaller and positioned to the right, centered vertically
         tempGauge = TemperatureGauge(this).apply {
-            layoutParams = LinearLayout.LayoutParams(
-                0, LinearLayout.LayoutParams.MATCH_PARENT, 1f
-            )
+            id = View.generateViewId()
+            val tempWidth = (resources.displayMetrics.widthPixels * 0.3).toInt()
+            layoutParams = RelativeLayout.LayoutParams(
+                tempWidth,
+                (tempWidth * 0.8).toInt()
+            ).apply {
+                // Position to the right of SOC gauge and center vertically
+                addRule(RelativeLayout.ALIGN_PARENT_END)
+                addRule(RelativeLayout.CENTER_VERTICAL)
+                marginEnd = 16
+            }
             setTemperature(0f)
         }
 
-        gaugesHorizontalContainer.addView(gauge)
-        gaugesHorizontalContainer.addView(tempGauge)
-        gaugeContainer.addView(gaugesHorizontalContainer)
+        gaugeContainer.addView(gauge)
+        gaugeContainer.addView(tempGauge)
 
         fun makeCard(title: String, colorHex: String): Pair<LinearLayout, Pair<TextView, TextView>> {
             val card = LinearLayout(this).apply {
@@ -534,9 +533,8 @@ class MeterActivity : AppCompatActivity() {
         fun setLabel(s: String) { label = s; invalidate() }
 
         override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
-            val w = MeasureSpec.getSize(widthMeasureSpec)
-            val h = max((w * 0.55f).roundToInt(), 260)
-            setMeasuredDimension(w, h)
+            val desiredSize = MeasureSpec.getSize(widthMeasureSpec)
+            setMeasuredDimension(desiredSize, 380) // Fixed height to match container
         }
 
         override fun onDraw(c: Canvas) {
@@ -671,7 +669,7 @@ class MeterActivity : AppCompatActivity() {
         private val maxTemp = 95f
         private val middleTemp = 50f
 
-        private val radiusScale = 1.5f
+        private val radiusScale = 1f
 
         private val track = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.parseColor("#E5E7EB") // gray-200
@@ -731,14 +729,14 @@ class MeterActivity : AppCompatActivity() {
         }
 
         override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
-            val w = MeasureSpec.getSize(widthMeasureSpec)
-            val h = max((w * 0.55f).roundToInt(), 260)
-            setMeasuredDimension(w, h)
+            val desiredWidth = MeasureSpec.getSize(widthMeasureSpec)
+            val desiredHeight = (desiredWidth * 0.8).toInt() // Maintain aspect ratio
+            setMeasuredDimension(desiredWidth, desiredHeight)
         }
 
         override fun onDraw(c: Canvas) {
             super.onDraw(c)
-            val pad = 26f
+            val pad = 66f
             val w = width.toFloat()
             val h = height.toFloat()
             val baseSize = min(w - pad * 2, h * 2.0f - pad * 2)
