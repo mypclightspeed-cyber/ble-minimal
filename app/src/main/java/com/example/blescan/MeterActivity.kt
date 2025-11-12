@@ -518,7 +518,7 @@ class MeterActivity : AppCompatActivity() {
         super.onDestroy()
     }
 
-    // ===== MODIFIED ModernHalfGauge class with values inside arc =====
+    // ===== MODIFIED ModernHalfGauge class with FIXED temperature gauge color =====
     class ModernHalfGauge(context: Context) : View(context) {
         private var pct = 0
         private var label = "SOC"
@@ -636,16 +636,21 @@ class MeterActivity : AppCompatActivity() {
             // ticks (bold at 0/50/100, thin each 10%)
             drawTicks(c, rect, startAngle, sweepTotal)
 
-            // progress color based on SOC - using pure solid colors
-            val levelColor = when {
-                pct < 15 -> Color.RED // Pure red
-                pct < 30 -> Color.YELLOW // Pure yellow
-                pct <= 80 -> Color.GREEN // Pure green
-                else -> Color.BLUE // Pure blue
+            // FIXED: Use consistent color for temperature gauge progress
+            if (label == "TEMP") {
+                // Temperature gauge - always use blue color
+                progress.color = Color.parseColor("#3B82F6") // Consistent blue color
+            } else {
+                // SOC gauge - use color coding based on percentage
+                progress.color = when {
+                    pct < 15 -> Color.RED // Pure red
+                    pct < 30 -> Color.Yellow // Pure yellow
+                    pct <= 80 -> Color.GREEN // Pure green
+                    else -> Color.BLUE // Pure blue
+                }
             }
             
             // Use solid color without gradient
-            progress.color = levelColor
             progress.shader = null
 
             val sweep = sweepTotal * (pct / 100f)
