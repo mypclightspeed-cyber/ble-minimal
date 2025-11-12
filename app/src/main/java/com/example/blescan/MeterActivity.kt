@@ -13,6 +13,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
+import android.view.Gravity
 import android.view.View
 import android.widget.*
 import androidx.appcompat.app.AlertDialog
@@ -644,7 +645,7 @@ class MeterActivity : AppCompatActivity() {
                 // SOC gauge - use color coding based on percentage
                 progress.color = when {
                     pct < 15 -> Color.RED // Pure red
-                    pct < 30 -> Color.Yellow // Pure yellow
+                    pct < 30 -> Color.parseColor("#FFEB3B") // Yellow using hex color
                     pct <= 80 -> Color.GREEN // Pure green
                     else -> Color.BLUE // Pure blue
                 }
