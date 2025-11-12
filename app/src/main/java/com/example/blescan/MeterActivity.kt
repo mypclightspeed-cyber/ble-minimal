@@ -178,7 +178,7 @@ class MeterActivity : AppCompatActivity() {
             )
             setLabel("TEMP")
             setPercent(0)
-            setScaleFactor(1.0f) // Normal scale for temperature
+            setScaleFactor(1.5f) // Normal scale for temperature
         }
 
         tempContainer.addView(tempLabel)
