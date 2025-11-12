@@ -128,8 +128,8 @@ class MeterActivity : AppCompatActivity() {
 
         // SOC Label
         val socLabel = TextView(this).apply {
-            text = "State of Charge"
-            textSize = 20f
+            text = "SOC"
+            textSize = 14f
             setTypeface(typeface, Typeface.BOLD)
             setTextColor(Color.BLACK)
             gravity = Gravity.CENTER
@@ -145,7 +145,7 @@ class MeterActivity : AppCompatActivity() {
             )
             setLabel("SOC")
             setPercent(0)
-            setScaleFactor(1.5f) // 1.5x scale for SOC
+            setScaleFactor(1.3f) // 1.5x scale for SOC
         }
 
         socContainer.addView(socLabel)
@@ -161,8 +161,8 @@ class MeterActivity : AppCompatActivity() {
 
         // Temperature Label
         val tempLabel = TextView(this).apply {
-            text = "Temperature"
-            textSize = 20f
+            text = "Temp"
+            textSize = 14f
             setTypeface(typeface, Typeface.BOLD)
             setTextColor(Color.BLACK)
             gravity = Gravity.CENTER
@@ -178,7 +178,7 @@ class MeterActivity : AppCompatActivity() {
             )
             setLabel("TEMP")
             setPercent(0)
-            setScaleFactor(1.5f) // Normal scale for temperature
+            setScaleFactor(2f) // Normal scale for temperature
         }
 
         tempContainer.addView(tempLabel)
