@@ -112,27 +112,29 @@ class MeterActivity : AppCompatActivity() {
         val gaugeContainer = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, 380
+                LinearLayout.LayoutParams.MATCH_PARENT, 500 // Increased height for larger SOC gauge
             ).apply { setMargins(16, 10, 16, 6) }
             weightSum = 2f
         }
 
-        // SOC Gauge
+        // SOC Gauge (1.5x larger)
         gaugeSOC = ModernHalfGauge(this).apply {
             layoutParams = LinearLayout.LayoutParams(
                 0, LinearLayout.LayoutParams.MATCH_PARENT, 1f
             ).apply { setMargins(4, 0, 4, 0) }
             setLabel("SOC")
             setPercent(0)
+            setScaleFactor(1.5f) // 1.5x scale for SOC
         }
 
-        // Temperature Gauge
+        // Temperature Gauge (normal size)
         gaugeTemp = ModernHalfGauge(this).apply {
             layoutParams = LinearLayout.LayoutParams(
                 0, LinearLayout.LayoutParams.MATCH_PARENT, 1f
             ).apply { setMargins(4, 0, 4, 0) }
             setLabel("TEMP")
             setPercent(0)
+            setScaleFactor(1.0f) // Normal scale for temperature
         }
 
         gaugeContainer.addView(gaugeSOC)
@@ -433,12 +435,14 @@ class MeterActivity : AppCompatActivity() {
             }
         }
 
-        // Convert temperature to percentage for gauge (-5°C to 95°C range)
+        // Convert temperature to percentage for gauge (-5°C to 95°C range) with 50°C in middle
         val tempPercent = ((tempValue - (-5)) / (95 - (-5)) * 100).coerceIn(0.0, 100.0).toInt()
+        val actualTemp = tempValue.toInt()
 
         runOnUiThread {
             gaugeSOC.setPercent(soc.coerceIn(0, 100))
             gaugeTemp.setPercent(tempPercent)
+            gaugeTemp.setActualValue(actualTemp) // Set actual temperature value for display
             tvVolt.text = String.format("%.3f V", voltage)
             tvCurr.text = String.format("%.3f A", current)
         }
@@ -463,10 +467,14 @@ class MeterActivity : AppCompatActivity() {
         super.onDestroy()
     }
 
-    // ===== Gauge Style 3 (Modern half-circle): A1 sweep 180°, start at 180°, radius shrink 0.75, red pointer with glowing red shadow, blue SOC text upper-middle =====
+    // ===== MODIFIED ModernHalfGauge class with 1.5x scale for SOC and temperature in °C =====
     class ModernHalfGauge(context: Context) : View(context) {
         private var pct = 0
         private var label = "SOC"
+        
+        // Add scale factor - 1.5x for SOC, 1x for Temp
+        private var scaleFactor = 1.0f
+        private var actualValue = 0 // Store actual value for temperature
 
         // radius shrink factor (B1)
         private val radiusScale = 0.75f
@@ -515,6 +523,13 @@ class MeterActivity : AppCompatActivity() {
             textSize = 54f
             typeface = Typeface.create(Typeface.DEFAULT_BOLD, Typeface.BOLD)
         }
+        // Temperature text
+        private val tempPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#DC2626") // red for temperature
+            textAlign = Paint.Align.CENTER
+            textSize = 54f
+            typeface = Typeface.create(Typeface.DEFAULT_BOLD, Typeface.BOLD)
+        }
         // Arc labels — large
         private val textLabel = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.parseColor("#374151")
@@ -522,12 +537,33 @@ class MeterActivity : AppCompatActivity() {
             textSize = 32f
         }
 
-        fun setPercent(v: Int) { pct = v.coerceIn(0, 100); invalidate() }
-        fun setLabel(s: String) { label = s; invalidate() }
+        fun setPercent(v: Int) { 
+            pct = v.coerceIn(0, 100); 
+            invalidate() 
+        }
+        
+        fun setLabel(s: String) { 
+            label = s; 
+            invalidate() 
+        }
+        
+        // New method to set scale factor
+        fun setScaleFactor(factor: Float) {
+            scaleFactor = factor
+            invalidate()
+        }
+        
+        // New method to set actual value for temperature
+        fun setActualValue(value: Int) {
+            actualValue = value
+            invalidate()
+        }
 
         override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
             val w = MeasureSpec.getSize(widthMeasureSpec)
-            val h = max((w * 0.55f).roundToInt(), 260)
+            // Apply scale factor to height
+            val baseHeight = max((w * 0.55f).roundToInt(), 260)
+            val h = (baseHeight * scaleFactor).roundToInt()
             setMeasuredDimension(w, h)
         }
 
@@ -536,7 +572,9 @@ class MeterActivity : AppCompatActivity() {
             val pad = 36f
             val w = width.toFloat()
             val h = height.toFloat()
-            val baseSize = min(w - pad * 2, h * 2.0f - pad * 2)
+            
+            // Apply scale factor to the base size
+            val baseSize = min(w - pad * 2, h * 2.0f - pad * 2) * scaleFactor
             val size = baseSize * radiusScale
             val rect = RectF(
                 (w - size) / 2f, pad + (baseSize - size) / 2f,
@@ -580,19 +618,28 @@ class MeterActivity : AppCompatActivity() {
             // labels at 0/25/50/75/100
             drawLabels(c, rect, startAngle, sweepTotal)
 
-            // SOC text in upper-middle: draw "SOC" and "<pct>%" with extra gap, centered
-            val gap = 44f // extra spacing
-            val socText = label
-            val pctText = "$pct%"
-            val socW = socPaint.measureText(socText)
-            val pctW = pctPaint.measureText(pctText)
-            val totalW = socW + gap + pctW
-            val y = rect.centerY() - rect.height()*0.18f  // upper placement
-            val startX = (w - totalW) / 2f
-            val fm = socPaint.fontMetrics
-            val baseline = y - (fm.ascent + fm.descent)/2f
-            c.drawText(socText, startX, baseline, socPaint)
-            c.drawText(pctText, startX + socW + gap, baseline, pctPaint)
+            // For temperature gauge, show actual value in °C
+            if (label == "TEMP") {
+                val tempText = "${actualValue}°C"
+                val y = rect.centerY() - rect.height()*0.18f
+                val fm = tempPaint.fontMetrics
+                val baseline = y - (fm.ascent + fm.descent)/2f
+                c.drawText(tempText, w / 2f, baseline, tempPaint)
+            } else {
+                // SOC text in upper-middle: draw "SOC" and "<pct>%" with extra gap, centered
+                val gap = 44f // extra spacing
+                val socText = label
+                val pctText = "$pct%"
+                val socW = socPaint.measureText(socText)
+                val pctW = pctPaint.measureText(pctText)
+                val totalW = socW + gap + pctW
+                val y = rect.centerY() - rect.height()*0.18f  // upper placement
+                val startX = (w - totalW) / 2f
+                val fm = socPaint.fontMetrics
+                val baseline = y - (fm.ascent + fm.descent)/2f
+                c.drawText(socText, startX, baseline, socPaint)
+                c.drawText(pctText, startX + socW + gap, baseline, pctPaint)
+            }
         }
 
         private fun drawTicks(c: Canvas, rect: RectF, start: Float, sweep: Float) {
@@ -618,24 +665,32 @@ class MeterActivity : AppCompatActivity() {
             val cx = rect.centerX()
             val cy = rect.centerY()
             val r = rect.width() / 2f + 24f
-            val marks = if (label == "SOC") {
-                listOf(0, 25, 50, 75, 100)
-            } else {
-                // Temperature gauge: -5°C, 50°C, 95°C
-                listOf(-5, 50, 95)
-            }
             
-            for (m in marks) {
-                val a = if (label == "SOC") {
-                    Math.toRadians((start + sweep * (m / 100f)).toDouble())
-                } else {
-                    // Map temperature values to percentage positions
-                    val tempPercent = ((m - (-5)) / (95 - (-5)) * 100).toDouble()
-                    Math.toRadians((start + sweep * (tempPercent / 100f)).toDouble())
+            if (label == "SOC") {
+                // SOC labels: 0%, 25%, 50%, 75%, 100%
+                val marks = listOf(0, 25, 50, 75, 100)
+                for (m in marks) {
+                    val a = Math.toRadians((start + sweep * (m / 100f)).toDouble())
+                    val x = (cx + r * cos(a)).toFloat()
+                    val y = (cy + r * sin(a)).toFloat()
+                    c.drawText("$m%", x, y, textLabel)
                 }
-                val x = (cx + r * cos(a)).toFloat()
-                val y = (cy + r * sin(a)).toFloat()
-                c.drawText("${m}${if (label == "SOC") "%" else "°C"}", x, y, textLabel)
+            } else {
+                // Temperature gauge: -5°C, 20°C, 50°C, 80°C, 95°C with 50°C in middle
+                val minTemp = -5
+                val maxTemp = 95
+                val middleTemp = 50
+                
+                // Calculate position for each temperature mark
+                val marks = listOf(minTemp, 20, middleTemp, 80, maxTemp)
+                for (m in marks) {
+                    // Map temperature to percentage position (-5°C = 0%, 95°C = 100%)
+                    val tempPercent = ((m - minTemp).toFloat() / (maxTemp - minTemp)).coerceIn(0f, 1f)
+                    val a = Math.toRadians((start + sweep * tempPercent).toDouble())
+                    val x = (cx + r * cos(a)).toFloat()
+                    val y = (cy + r * sin(a)).toFloat()
+                    c.drawText("${m}°C", x, y, textLabel)
+                }
             }
         }
 
