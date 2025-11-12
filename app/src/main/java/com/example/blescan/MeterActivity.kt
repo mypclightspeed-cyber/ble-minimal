@@ -516,6 +516,8 @@ class MeterActivity : AppCompatActivity() {
 
     // ===== MODIFIED ModernHalfGauge class with TEMPERATURE COLOR ZONES =====
     class ModernHalfGauge(context: Context) : View(context) {
+        init {setBackgroundColor(Color.TRARANSPARENT)  // ADD THIS LINE
+        }
         private var pct = 0
         private var label = "SOC"
         
