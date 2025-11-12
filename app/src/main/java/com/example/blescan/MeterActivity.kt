@@ -105,14 +105,14 @@ class MeterActivity : AppCompatActivity() {
             visibility = View.GONE
         }
 
-        btnScan = Button(this).apply { text = "Start Scan (20s)" }
+        btnScan = Button(this).apply { text = "Start Scan BMS" }
         list = ListView(this)
 
         // Main container for gauges
         val gaugeContainer = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, 380
+                LinearLayout.LayoutParams.MATCH_PARENT, 500
             ).apply { setMargins(16, 10, 16, 6) }
             weightSum = 3f
         }
@@ -120,7 +120,7 @@ class MeterActivity : AppCompatActivity() {
         // SOC Gauge - takes 2/3 of space
         gauge = ModernHalfGauge(this).apply {
             layoutParams = LinearLayout.LayoutParams(
-                0, LinearLayout.LayoutParams.MATCH_PARENT, 2.5f
+                0, LinearLayout.LayoutParams.MATCH_PARENT, 2f
             )
             setLabel("SOC")
             setPercent(0)
@@ -129,7 +129,7 @@ class MeterActivity : AppCompatActivity() {
         // Temperature Gauge - takes 1/3 of space
         tempGauge = TemperatureGauge(this).apply {
             layoutParams = LinearLayout.LayoutParams(
-                0, LinearLayout.LayoutParams.MATCH_PARENT, 1.5f
+                0, LinearLayout.LayoutParams.MATCH_PARENT, 1f
             )
             setTemperature(0f)
         }
