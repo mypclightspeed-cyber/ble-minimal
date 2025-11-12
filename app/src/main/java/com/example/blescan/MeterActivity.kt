@@ -123,8 +123,8 @@ class MeterActivity : AppCompatActivity() {
             orientation = LinearLayout.VERTICAL
             layoutParams = LinearLayout.LayoutParams(
                 0, LinearLayout.LayoutParams.MATCH_PARENT, 7f // 70% width
-            ).apply { setMargins(4, 0, 4, 0)
-            setBackgroundColor(Color.TRANSPARENT)}
+            ).apply { setMargins(4, 0, 4, 0) }
+            setBackgroundColor(Color.TRANSPARENT) // TRANSPARENT BACKGROUND
         }
 
         // SOC Label
@@ -157,8 +157,8 @@ class MeterActivity : AppCompatActivity() {
             orientation = LinearLayout.VERTICAL
             layoutParams = LinearLayout.LayoutParams(
                 0, LinearLayout.LayoutParams.MATCH_PARENT, 3f // 30% width
-            ).apply { setMargins(4, 0, 4, 0) 
-            setBackgroundColor(Color.TRANSPARENT)}
+            ).apply { setMargins(4, 0, 4, 0) }
+            setBackgroundColor(Color.TRANSPARENT) // TRANSPARENT BACKGROUND
         }
 
         // Temperature Label
@@ -230,7 +230,7 @@ class MeterActivity : AppCompatActivity() {
             addView(bannerWarn)
             addView(btnScan)
             addView(list, LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
+                LinearLayout.LayoutParams.MATCH_PARENT, 300)) // Reduced height
             addView(gaugeContainer)  // Gauges in horizontal layout
             addView(cardVolt)
             addView(cardCurr)
@@ -516,7 +516,7 @@ class MeterActivity : AppCompatActivity() {
         super.onDestroy()
     }
 
-    // ===== MODIFIED ModernHalfGauge class with TRANSPARENT BACKGROUND =====
+    // ===== ModernHalfGauge class with TRANSPARENT BACKGROUND =====
     class ModernHalfGauge(context: Context) : View(context) {
         
         init {
