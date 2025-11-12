@@ -114,7 +114,7 @@ class MeterActivity : AppCompatActivity() {
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 380
             ).apply { setMargins(16, 10, 16, 6) }
-            weightSum = 4f
+            weightSum = 3f
         }
 
         // SOC Gauge - takes 2/3 of space
