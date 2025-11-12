@@ -108,12 +108,20 @@ class MeterActivity : AppCompatActivity() {
         btnScan = Button(this).apply { text = "Start Scan BM" }
         list = ListView(this)
 
-        // Main container for gauges
+        // Main container for gauges - changed to vertical layout
         val gaugeContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { setMargins(16, 10, 16, 6) }
+        }
+
+        // Horizontal container for both gauges to center them
+        val gaugesHorizontalContainer = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 380
-            ).apply { setMargins(16, 10, 16, 6) }
+            )
             weightSum = 3f
         }
 
@@ -126,7 +134,7 @@ class MeterActivity : AppCompatActivity() {
             setPercent(0)
         }
 
-        // Temperature Gauge - takes 1/3 of space
+        // Temperature Gauge - takes 1/3 of space but centered
         tempGauge = TemperatureGauge(this).apply {
             layoutParams = LinearLayout.LayoutParams(
                 0, LinearLayout.LayoutParams.MATCH_PARENT, 1f
@@ -134,8 +142,9 @@ class MeterActivity : AppCompatActivity() {
             setTemperature(0f)
         }
 
-        gaugeContainer.addView(gauge)
-        gaugeContainer.addView(tempGauge)
+        gaugesHorizontalContainer.addView(gauge)
+        gaugesHorizontalContainer.addView(tempGauge)
+        gaugeContainer.addView(gaugesHorizontalContainer)
 
         fun makeCard(title: String, colorHex: String): Pair<LinearLayout, Pair<TextView, TextView>> {
             val card = LinearLayout(this).apply {
