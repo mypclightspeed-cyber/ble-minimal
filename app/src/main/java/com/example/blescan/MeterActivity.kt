@@ -514,10 +514,13 @@ class MeterActivity : AppCompatActivity() {
         super.onDestroy()
     }
 
-    // ===== MODIFIED ModernHalfGauge class with TEMPERATURE COLOR ZONES =====
+    // ===== MODIFIED ModernHalfGauge class with TRANSPARENT BACKGROUND =====
     class ModernHalfGauge(context: Context) : View(context) {
-        init {setBackgroundColor(Color.TRARANSPARENT)  // ADD THIS LINE
+        
+        init {
+            setBackgroundColor(Color.TRANSPARENT)
         }
+        
         private var pct = 0
         private var label = "SOC"
         
