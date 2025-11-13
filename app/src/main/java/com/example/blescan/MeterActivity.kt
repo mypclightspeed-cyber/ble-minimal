@@ -112,7 +112,7 @@ class MeterActivity : AppCompatActivity() {
         val gaugeLayout = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, 380
+                LinearLayout.LayoutParams.MATCH_PARENT, 300
             ).apply { setMargins(16, 10, 16, 6) }
             weightSum = 2f
         }
