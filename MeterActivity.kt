@@ -112,15 +112,15 @@ class MeterActivity : AppCompatActivity() {
         val gaugeLayout = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, 500
+                LinearLayout.LayoutParams.MATCH_PARENT, 600
             ).apply { setMargins(16, 10, 16, 6) }
-            weightSum = 2f
+            weightSum = 3f
         }
 
         // SOC Gauge
         gaugeSOC = ModernHalfGauge(this).apply {
             layoutParams = LinearLayout.LayoutParams(
-                0, LinearLayout.LayoutParams.MATCH_PARENT, 1f
+                0, LinearLayout.LayoutParams.MATCH_PARENT, 1.8f
             ).apply { setMargins(8, 0, 8, 0) }
             setLabel("SOC")
             setPercent(0)
@@ -129,7 +129,7 @@ class MeterActivity : AppCompatActivity() {
         // Temperature Gauge
         gaugeTemp = ModernHalfGaugeTemp(this).apply {
             layoutParams = LinearLayout.LayoutParams(
-                0, LinearLayout.LayoutParams.MATCH_PARENT, 1f
+                0, LinearLayout.LayoutParams.MATCH_PARENT, 1.2f
             ).apply { setMargins(8, 0, 8, 0) }
             setLabel("Temp")
             setPercent(0)
@@ -533,7 +533,7 @@ class MeterActivity : AppCompatActivity() {
 
         override fun onDraw(c: Canvas) {
             super.onDraw(c)
-            val pad = 16f
+            val pad = 26f
             val w = width.toFloat()
             val h = height.toFloat()
             val baseSize = min(w - pad * 2, h * 2.0f - pad * 2)
@@ -726,7 +726,7 @@ class MeterActivity : AppCompatActivity() {
 
         override fun onDraw(c: Canvas) {
             super.onDraw(c)
-            val pad = 16f
+            val pad = 26f
             val w = width.toFloat()
             val h = height.toFloat()
             val baseSize = min(w - pad * 2, h * 2.0f - pad * 2)
