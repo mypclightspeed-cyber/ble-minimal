@@ -53,6 +53,8 @@ class MeterActivity : AppCompatActivity() {
     private lateinit var tvVolt: TextView
     private lateinit var tvCurr: TextView
     private lateinit var tvName: TextView
+    private lateinit var tvSOCValue: TextView  // مقدار SOC زیر گیج
+    private lateinit var tvTempValue: TextView // مقدار دما زیر گیج
 
     private lateinit var adapterLv: ArrayAdapter<String>
     private val rows = mutableListOf<String>()                     // "MAC  Name"
@@ -105,14 +107,14 @@ class MeterActivity : AppCompatActivity() {
             visibility = View.GONE
         }
 
-        btnScan = Button(this).apply { text = "Start Scan (20s)" }
+        btnScan = Button(this).apply { text = "Start Scan BMS" }
         list = ListView(this)
 
         // Create horizontal layout for gauges
         val gaugeLayout = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, 500  // افزایش ارتفاع برای نمایش مقادیر زیر گیج
+                LinearLayout.LayoutParams.MATCH_PARENT, 400
             ).apply { setMargins(16, 10, 16, 6) }
             weightSum = 3f
         }
@@ -137,6 +139,42 @@ class MeterActivity : AppCompatActivity() {
 
         gaugeLayout.addView(gaugeSOC)
         gaugeLayout.addView(gaugeTemp)
+
+        // ایجاد layout برای نمایش مقادیر زیر گیج‌ها
+        val valueLayout = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { setMargins(16, 0, 16, 10) }
+            weightSum = 3f
+        }
+
+        // مقدار SOC
+        tvSOCValue = TextView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.8f
+            ).apply { setMargins(8, 0, 8, 0) }
+            text = "0%"
+            textSize = 28f
+            setTextColor(Color.parseColor("#2563EB"))
+            gravity = Gravity.CENTER
+            typeface = Typeface.create(Typeface.DEFAULT_BOLD, Typeface.BOLD)
+        }
+
+        // مقدار دما
+        tvTempValue = TextView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.2f
+            ).apply { setMargins(8, 0, 8, 0) }
+            text = "0°C"
+            textSize = 28f
+            setTextColor(Color.parseColor("#2563EB"))
+            gravity = Gravity.CENTER
+            typeface = Typeface.create(Typeface.DEFAULT_BOLD, Typeface.BOLD)
+        }
+
+        valueLayout.addView(tvSOCValue)
+        valueLayout.addView(tvTempValue)
 
         fun makeCard(title: String, colorHex: String): Pair<LinearLayout, Pair<TextView, TextView>> {
             val card = LinearLayout(this).apply {
@@ -181,9 +219,10 @@ class MeterActivity : AppCompatActivity() {
             
             // لیست دستگاه‌های بلوتوث با ارتفاع محدود
             addView(list, LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, 300)) // ارتفاع ثابت برای لیست
+                LinearLayout.LayoutParams.MATCH_PARENT, 300))
             
-            addView(gaugeLayout)    // Both gauges above parameters
+            addView(gaugeLayout)    // گیج‌ها
+            addView(valueLayout)    // مقادیر زیر گیج‌ها
             addView(cardVolt)
             addView(cardCurr)
             addView(cardName)
@@ -305,6 +344,8 @@ class MeterActivity : AppCompatActivity() {
         tvVolt.text = "-"
         tvCurr.text = "-"
         tvName.text = ""
+        tvSOCValue.text = "0%"
+        tvTempValue.text = "0°C"
 
         scanning = true
         toast("Scanning for ${SCAN_MS/1000}s…")
@@ -442,6 +483,8 @@ class MeterActivity : AppCompatActivity() {
         runOnUiThread {
             gaugeSOC.setPercent(soc.coerceIn(0, 100))
             gaugeTemp.setPercent(tempValue)
+            tvSOCValue.text = "$soc%"
+            tvTempValue.text = "$tempValue°C"
             tvVolt.text = String.format("%.3f V", voltage)
             tvCurr.text = String.format("%.3f A", current)
         }
@@ -472,7 +515,7 @@ class MeterActivity : AppCompatActivity() {
         private var label = "SOC"
 
         // radius shrink factor (B1)
-        private val radiusScale = 1.1f
+        private val radiusScale = 1f
 
         private val track = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.parseColor("#E5E7EB") // gray-200
@@ -512,13 +555,6 @@ class MeterActivity : AppCompatActivity() {
             textSize = 42f
             typeface = Typeface.create(Typeface.DEFAULT_BOLD, Typeface.BOLD)
         }
-        // مقدار درصد — زیر گیج
-        private val pctPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.parseColor("#2563EB") // blue
-            textAlign = Paint.Align.CENTER
-            textSize = 36f
-            typeface = Typeface.create(Typeface.DEFAULT_BOLD, Typeface.BOLD)
-        }
         // Arc labels — large
         private val textLabel = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.parseColor("#374151")
@@ -531,7 +567,7 @@ class MeterActivity : AppCompatActivity() {
 
         override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
             val w = MeasureSpec.getSize(widthMeasureSpec)
-            val h = max((w * 0.65f).roundToInt(), 320) // افزایش ارتفاع برای نمایش مقادیر زیر گیج
+            val h = max((w * 0.55f).roundToInt(), 260)
             setMeasuredDimension(w, h)
         }
 
@@ -540,7 +576,7 @@ class MeterActivity : AppCompatActivity() {
             val pad = 26f
             val w = width.toFloat()
             val h = height.toFloat()
-            val baseSize = min(w - pad * 2, (h - 80) * 2.0f - pad * 2) // کاهش ارتفاع baseSize برای فضای بیشتر
+            val baseSize = min(w - pad * 2, h * 2.0f - pad * 2)
             val size = baseSize * radiusScale
             val rect = RectF(
                 (w - size) / 2f, pad + (baseSize - size) / 2f,
@@ -590,12 +626,6 @@ class MeterActivity : AppCompatActivity() {
             val fm = socPaint.fontMetrics
             val socBaseline = socY - (fm.ascent + fm.descent) / 2f
             c.drawText(socText, rect.centerX(), socBaseline, socPaint)
-            
-            // مقدار درصد در زیر گیج
-            val pctText = "$pct%"
-            val pctY = rect.bottom + 60f // فاصله بیشتر از پایین گیج
-            val pctBaseline = pctY - (fm.ascent + fm.descent) / 2f
-            c.drawText(pctText, rect.centerX(), pctBaseline, pctPaint)
         }
 
         private fun drawTicks(c: Canvas, rect: RectF, start: Float, sweep: Float) {
@@ -665,7 +695,7 @@ class MeterActivity : AppCompatActivity() {
         private var label = "Temp"
 
         // radius shrink factor (B1)
-        private val radiusScale = 0.95f
+        private val radiusScale = 1f
 
         private val track = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.parseColor("#E5E7EB") // gray-200
@@ -705,13 +735,6 @@ class MeterActivity : AppCompatActivity() {
             textSize = 32f
             typeface = Typeface.create(Typeface.DEFAULT_BOLD, Typeface.BOLD)
         }
-        // مقدار دما — زیر گیج
-        private val valuePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.parseColor("#2563EB") // blue
-            textAlign = Paint.Align.CENTER
-            textSize = 36f
-            typeface = Typeface.create(Typeface.DEFAULT_BOLD, Typeface.BOLD)
-        }
         // Arc labels — large
         private val textLabel = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.parseColor("#374151")
@@ -724,7 +747,7 @@ class MeterActivity : AppCompatActivity() {
 
         override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
             val w = MeasureSpec.getSize(widthMeasureSpec)
-            val h = max((w * 0.65f).roundToInt(), 320) // افزایش ارتفاع برای نمایش مقادیر زیر گیج
+            val h = max((w * 0.55f).roundToInt(), 260)
             setMeasuredDimension(w, h)
         }
 
@@ -733,7 +756,7 @@ class MeterActivity : AppCompatActivity() {
             val pad = 26f
             val w = width.toFloat()
             val h = height.toFloat()
-            val baseSize = min(w - pad * 2, (h - 80) * 2.0f - pad * 2) // کاهش ارتفاع baseSize برای فضای بیشتر
+            val baseSize = min(w - pad * 2, h * 2.0f - pad * 2)
             val size = baseSize * radiusScale
             val rect = RectF(
                 (w - size) / 2f, pad + (baseSize - size) / 2f,
@@ -758,15 +781,15 @@ class MeterActivity : AppCompatActivity() {
             val whiteSweep = ((redRangeStart - blueRangeEnd) / 100f) * sweepTotal
             
             // Draw blue segment (-5 to +15°C)
-            progress.color = Color.parseColor("#EB4A25")
+            progress.color = Color.parseColor("#00BFFF")
             c.drawArc(rect, startAngle, blueSweep, false, progress)
             
             // Draw white segment (+15 to +65°C)
- //           progress.color = Color.WHITE
- //           c.drawArc(rect, startAngle + blueSweep, whiteSweep, false, progress)
+//            progress.color = Color.WHITE
+//            c.drawArc(rect, startAngle + blueSweep, whiteSweep, false, progress)
             
             // Draw red segment (+65 to +95°C)
-            progress.color = Color.parseColor("#25C6EB")
+            progress.color = Color.parseColor("#FF4000")
             c.drawArc(rect, startAngle + blueSweep + whiteSweep, redSweep, false, progress)
 
             // ticks (bold at -5/50/95, thin each 10°C)
@@ -794,12 +817,6 @@ class MeterActivity : AppCompatActivity() {
             val fm = labelPaint.fontMetrics
             val labelBaseline = labelY - (fm.ascent + fm.descent) / 2f
             c.drawText(tempLabelText, rect.centerX(), labelBaseline, labelPaint)
-            
-            // مقدار دما در زیر گیج
-            val tempValueText = "$temp°C"
-            val valueY = rect.bottom + 60f // فاصله بیشتر از پایین گیج
-            val valueBaseline = valueY - (fm.ascent + fm.descent) / 2f
-            c.drawText(tempValueText, rect.centerX(), valueBaseline, valuePaint)
         }
 
         private fun drawTicks(c: Canvas, rect: RectF, start: Float, sweep: Float) {
