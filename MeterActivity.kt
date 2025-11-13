@@ -743,29 +743,37 @@ class MeterActivity : AppCompatActivity() {
             // track
             c.drawArc(rect, startAngle, sweepTotal, false, track)
 
+            // Define color segments for different temperature ranges
+            val blueRangeStart = 0f // -5°C
+            val blueRangeEnd = 20f // +15°C (20 units from -5 to +15)
+            val redRangeStart = 70f // +65°C (70 units from -5 to +65)
+            val redRangeEnd = 100f // +95°C (100 units from -5 to +95)
+            
+            val blueSweep = (blueRangeEnd / 100f) * sweepTotal
+            val redSweep = ((redRangeEnd - redRangeStart) / 100f) * sweepTotal
+            val whiteSweep = ((redRangeStart - blueRangeEnd) / 100f) * sweepTotal
+            
+            // Draw blue segment (-5 to +15°C)
+            progress.color = Color.BLUE
+            c.drawArc(rect, startAngle, blueSweep, false, progress)
+            
+            // Draw white segment (+15 to +65°C)
+            progress.color = Color.WHITE
+            c.drawArc(rect, startAngle + blueSweep, whiteSweep, false, progress)
+            
+            // Draw red segment (+65 to +95°C)
+            progress.color = Color.RED
+            c.drawArc(rect, startAngle + blueSweep + whiteSweep, redSweep, false, progress)
+
             // ticks (bold at -5/50/95, thin each 10°C)
             drawTicks(c, rect, startAngle, sweepTotal)
 
-            // progress color based on temperature - using pure solid colors
-            val levelColor = when {
-                temp < 0 -> Color.BLUE // Blue for cold
-                temp < 15 -> Color.CYAN // Cyan for cool
-                temp < 30 -> Color.GREEN // Green for normal
-                temp < 50 -> Color.YELLOW // Yellow for warm
-                else -> Color.RED // Red for hot
-            }
+            // Enable shadow layer for glowing red effect
+            setLayerType(LAYER_TYPE_SOFTWARE, pointerGlow)
             
-            // Use solid color without gradient
-            progress.color = levelColor
-            progress.shader = null
-
             // Convert temperature to percentage for gauge display
             val tempPercent = ((temp + 5) / 100.0f) * 100f
             val sweep = sweepTotal * (tempPercent / 100f)
-            c.drawArc(rect, startAngle, sweep, false, progress)
-
-            // Enable shadow layer for glowing red effect
-            setLayerType(LAYER_TYPE_SOFTWARE, pointerGlow)
             
             // pointer with glowing red shadow
             drawPointer(c, rect, startAngle + sweep)
