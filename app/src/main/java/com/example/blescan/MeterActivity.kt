@@ -112,7 +112,7 @@ class MeterActivity : AppCompatActivity() {
         val gaugeLayout = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, 300
+                LinearLayout.LayoutParams.MATCH_PARENT, 400
             ).apply { setMargins(16, 10, 16, 6) }
             weightSum = 3f
         }
@@ -463,13 +463,13 @@ class MeterActivity : AppCompatActivity() {
         super.onDestroy()
     }
 
-    // ===== Gauge Style 3 (Modern half-circle): A1 sweep 180°, start at 180°, radius shrink 0.75, red pointer with glowing red shadow, blue SOC text upper-middle =====
+    // ===== Gauge SOC Style 3 (Modern half-circle): A1 sweep 180°, start at 180°, radius shrink 0.75, red pointer with glowing red shadow, blue SOC text upper-middle =====
     class ModernHalfGauge(context: Context) : View(context) {
         private var pct = 0
         private var label = "SOC"
 
         // radius shrink factor (B1)
-        private val radiusScale = 0.95f
+        private val radiusScale = 1.1f
 
         private val track = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.parseColor("#E5E7EB") // gray-200
@@ -502,17 +502,18 @@ class MeterActivity : AppCompatActivity() {
             style = Paint.Style.FILL
             setShadowLayer(25f, 0f, 0f, Color.parseColor("#FFEF4444")) // Strong red glow
         }
-        // SOC text — bigger and blue, drawn upper-middle with extra gap
+        // SOC text — درون گیج
         private val socPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.parseColor("#2563EB") // blue
-            textAlign = Paint.Align.LEFT
-            textSize = 54f
+            textAlign = Paint.Align.CENTER
+            textSize = 42f
             typeface = Typeface.create(Typeface.DEFAULT_BOLD, Typeface.BOLD)
         }
+        // مقدار درصد — زیر گیج
         private val pctPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.parseColor("#2563EB") // blue
-            textAlign = Paint.Align.LEFT
-            textSize = 54f
+            textAlign = Paint.Align.CENTER
+            textSize = 36f
             typeface = Typeface.create(Typeface.DEFAULT_BOLD, Typeface.BOLD)
         }
         // Arc labels — large
@@ -533,7 +534,7 @@ class MeterActivity : AppCompatActivity() {
 
         override fun onDraw(c: Canvas) {
             super.onDraw(c)
-            val pad = 16f
+            val pad = 26f
             val w = width.toFloat()
             val h = height.toFloat()
             val baseSize = min(w - pad * 2, h * 2.0f - pad * 2)
@@ -580,19 +581,18 @@ class MeterActivity : AppCompatActivity() {
             // labels at 0/25/50/75/100
             drawLabels(c, rect, startAngle, sweepTotal)
 
-            // SOC text in upper-middle: draw "SOC" and "<pct>%" with extra gap, centered
-            val gap = 44f // extra spacing
+            // متن "SOC" در مرکز گیج
             val socText = label
-            val pctText = "$pct%"
-            val socW = socPaint.measureText(socText)
-            val pctW = pctPaint.measureText(pctText)
-            val totalW = socW + gap + pctW
-            val y = rect.centerY() - rect.height()*0.18f  // upper placement
-            val startX = (w - totalW) / 2f
+            val socY = rect.centerY() - rect.height() * 0.18f
             val fm = socPaint.fontMetrics
-            val baseline = y - (fm.ascent + fm.descent)/2f
-            c.drawText(socText, startX, baseline, socPaint)
-            c.drawText(pctText, startX + socW + gap, baseline, pctPaint)
+            val socBaseline = socY - (fm.ascent + fm.descent) / 2f
+            c.drawText(socText, rect.centerX(), socBaseline, socPaint)
+            
+            // مقدار درصد در زیر گیج
+            val pctText = "$pct%"
+            val pctY = rect.bottom + 50f // فاصله از پایین گیج
+            val pctBaseline = pctY - (fm.ascent + fm.descent) / 2f
+            c.drawText(pctText, rect.centerX(), pctBaseline, pctPaint)
         }
 
         private fun drawTicks(c: Canvas, rect: RectF, start: Float, sweep: Float) {
@@ -662,7 +662,7 @@ class MeterActivity : AppCompatActivity() {
         private var label = "Temp"
 
         // radius shrink factor (B1)
-        private val radiusScale = 0.8f
+        private val radiusScale = 0.95f
 
         private val track = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.parseColor("#E5E7EB") // gray-200
@@ -695,17 +695,18 @@ class MeterActivity : AppCompatActivity() {
             style = Paint.Style.FILL
             setShadowLayer(25f, 0f, 0f, Color.parseColor("#FFEF4444")) // Strong red glow
         }
-        // Temp text — bigger and blue, drawn above the arc
+        // Temp text — درون گیج
         private val labelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.parseColor("#2563EB") // blue
             textAlign = Paint.Align.CENTER
             textSize = 32f
             typeface = Typeface.create(Typeface.DEFAULT_BOLD, Typeface.BOLD)
         }
+        // مقدار دما — زیر گیج
         private val valuePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.parseColor("#2563EB") // blue
             textAlign = Paint.Align.CENTER
-            textSize = 42f
+            textSize = 36f
             typeface = Typeface.create(Typeface.DEFAULT_BOLD, Typeface.BOLD)
         }
         // Arc labels — large
@@ -726,7 +727,7 @@ class MeterActivity : AppCompatActivity() {
 
         override fun onDraw(c: Canvas) {
             super.onDraw(c)
-            val pad = 16f
+            val pad = 26f
             val w = width.toFloat()
             val h = height.toFloat()
             val baseSize = min(w - pad * 2, h * 2.0f - pad * 2)
@@ -743,29 +744,37 @@ class MeterActivity : AppCompatActivity() {
             // track
             c.drawArc(rect, startAngle, sweepTotal, false, track)
 
+            // Define color segments for different temperature ranges
+            val blueRangeStart = 0f // -5°C
+            val blueRangeEnd = 20f // +15°C (20 units from -5 to +15)
+            val redRangeStart = 70f // +65°C (70 units from -5 to +65)
+            val redRangeEnd = 100f // +95°C (100 units from -5 to +95)
+            
+            val blueSweep = (blueRangeEnd / 100f) * sweepTotal
+            val redSweep = ((redRangeEnd - redRangeStart) / 100f) * sweepTotal
+            val whiteSweep = ((redRangeStart - blueRangeEnd) / 100f) * sweepTotal
+            
+            // Draw blue segment (-5 to +15°C)
+            progress.color = Color.BLUE
+            c.drawArc(rect, startAngle, blueSweep, false, progress)
+            
+            // Draw white segment (+15 to +65°C)
+            progress.color = Color.WHITE
+            c.drawArc(rect, startAngle + blueSweep, whiteSweep, false, progress)
+            
+            // Draw red segment (+65 to +95°C)
+            progress.color = Color.RED
+            c.drawArc(rect, startAngle + blueSweep + whiteSweep, redSweep, false, progress)
+
             // ticks (bold at -5/50/95, thin each 10°C)
             drawTicks(c, rect, startAngle, sweepTotal)
 
-            // progress color based on temperature - using pure solid colors
-            val levelColor = when {
-                temp < 0 -> Color.BLUE // Blue for cold
-                temp < 15 -> Color.CYAN // Cyan for cool
-                temp < 30 -> Color.GREEN // Green for normal
-                temp < 50 -> Color.YELLOW // Yellow for warm
-                else -> Color.RED // Red for hot
-            }
+            // Enable shadow layer for glowing red effect
+            setLayerType(LAYER_TYPE_SOFTWARE, pointerGlow)
             
-            // Use solid color without gradient
-            progress.color = levelColor
-            progress.shader = null
-
             // Convert temperature to percentage for gauge display
             val tempPercent = ((temp + 5) / 100.0f) * 100f
             val sweep = sweepTotal * (tempPercent / 100f)
-            c.drawArc(rect, startAngle, sweep, false, progress)
-
-            // Enable shadow layer for glowing red effect
-            setLayerType(LAYER_TYPE_SOFTWARE, pointerGlow)
             
             // pointer with glowing red shadow
             drawPointer(c, rect, startAngle + sweep)
@@ -776,12 +785,18 @@ class MeterActivity : AppCompatActivity() {
             // labels at -5/20/45/70/95
             drawLabels(c, rect, startAngle, sweepTotal)
 
-            // Label and value above the arc
-            val labelY = rect.top - 60f
-            val valueY = rect.top - 20f
+            // متن "Temp" در مرکز گیج
+            val tempLabelText = label
+            val labelY = rect.centerY() - rect.height() * 0.18f
+            val fm = labelPaint.fontMetrics
+            val labelBaseline = labelY - (fm.ascent + fm.descent) / 2f
+            c.drawText(tempLabelText, rect.centerX(), labelBaseline, labelPaint)
             
-            c.drawText(label, rect.centerX(), labelY, labelPaint)
-            c.drawText("$temp°C", rect.centerX(), valueY, valuePaint)
+            // مقدار دما در زیر گیج
+            val tempValueText = "$temp°C"
+            val valueY = rect.bottom + 50f // فاصله از پایین گیج
+            val valueBaseline = valueY - (fm.ascent + fm.descent) / 2f
+            c.drawText(tempValueText, rect.centerX(), valueBaseline, valuePaint)
         }
 
         private fun drawTicks(c: Canvas, rect: RectF, start: Float, sweep: Float) {
