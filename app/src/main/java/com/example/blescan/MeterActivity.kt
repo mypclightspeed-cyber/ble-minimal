@@ -156,7 +156,7 @@ class MeterActivity : AppCompatActivity() {
                 0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.8f
             ).apply { setMargins(8, 0, 8, 0) }
             text = "0%"
-            textSize = 24f
+            textSize = 28f
             setTextColor(Color.parseColor("#2563EB"))
             gravity = Gravity.CENTER
             typeface = Typeface.create(Typeface.DEFAULT_BOLD, Typeface.BOLD)
@@ -168,7 +168,7 @@ class MeterActivity : AppCompatActivity() {
                 0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.2f
             ).apply { setMargins(8, 0, 8, 0) }
             text = "0°C"
-            textSize = 24f
+            textSize = 28f
             setTextColor(Color.parseColor("#2563EB"))
             gravity = Gravity.CENTER
             typeface = Typeface.create(Typeface.DEFAULT_BOLD, Typeface.BOLD)
@@ -577,11 +577,20 @@ class MeterActivity : AppCompatActivity() {
         private val socPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.parseColor("#2563EB") // blue
             textAlign = Paint.Align.CENTER
-            textSize = 50f
+            textSize = 42f
             typeface = Typeface.create(Typeface.DEFAULT_BOLD, Typeface.BOLD)
         }
         // Arc labels — large
-        private val textLabel = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        
+        // Coolant temperature symbol paint
+        private val iconPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.WHITE
+            style = Paint.Style.STROKE
+            strokeWidth = 8f
+            strokeCap = Paint.Cap.ROUND
+            strokeJoin = Paint.Join.ROUND
+        }
+private val textLabel = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.parseColor("#374151")
             textAlign = Paint.Align.CENTER
             textSize = 32f
@@ -632,6 +641,9 @@ class MeterActivity : AppCompatActivity() {
 
             val sweep = sweepTotal * (pct / 100f)
             c.drawArc(rect, startAngle, sweep, false, progress)
+
+                        // Coolant symbol
+            drawCoolantSymbol(c, rect)
 
             // Enable shadow layer for glowing red effect
             setLayerType(LAYER_TYPE_SOFTWARE, pointerGlow)
@@ -685,7 +697,46 @@ class MeterActivity : AppCompatActivity() {
             }
         }
 
-        private fun drawPointer(c: Canvas, rect: RectF, angleDeg: Float) {
+        
+        private fun drawCoolantSymbol(c: Canvas, rect: RectF) {
+            val cx = rect.centerX()
+            val baseY = rect.bottom - 36f
+
+            // waves (two)
+            fun wavePath(y: Float, amp: Float, len: Float): Path {
+                val p = Path()
+                val startX = cx - len / 2f
+                val endX = cx + len / 2f
+                val midX = cx
+                p.moveTo(startX, y)
+                p.quadTo(startX + len * 0.25f, y - amp, midX, y)
+                p.quadTo(endX - len * 0.25f, y + amp, endX, y)
+                return p
+            }
+            val len = rect.width() * 0.45f
+            c.drawPath(wavePath(baseY, 10f, len), iconPaint)
+            c.drawPath(wavePath(baseY + 16f, 10f, len), iconPaint)
+
+            // thermometer: vertical stem with bulb and fins
+            val bulbR = 12f
+            val stemH = 42f
+            val stemX = cx
+            val stemTop = baseY - stemH - 6f
+
+            // bulb
+            c.drawCircle(stemX, baseY - 8f, bulbR, iconPaint)
+
+            // stem
+            c.drawLine(stemX, stemTop, stemX, baseY - 8f, iconPaint)
+
+            // fins (3)
+            val finGap = 14f
+            for (i in 0..2) {
+                val y = stemTop + 10f + i * finGap
+                c.drawLine(stemX, y, stemX + 28f, y, iconPaint)
+            }
+        }
+private fun drawPointer(c: Canvas, rect: RectF, angleDeg: Float) {
             val cx = rect.centerX()
             val cy = rect.centerY()
             val r = rect.width() / 2.25f
@@ -757,7 +808,7 @@ class MeterActivity : AppCompatActivity() {
         private val labelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.parseColor("#2563EB") // blue
             textAlign = Paint.Align.CENTER
-            textSize = 40f
+            textSize = 32f
             typeface = Typeface.create(Typeface.DEFAULT_BOLD, Typeface.BOLD)
         }
         // Arc labels — large
@@ -783,7 +834,6 @@ class MeterActivity : AppCompatActivity() {
             val h = height.toFloat()
             val baseSize = min(w - pad * 2, h * 2.0f - pad * 2)
             val size = baseSize * radiusScale
-            val verticalOffset = 30f
             val rect = RectF(
                 (w - size) / 2f, pad + (baseSize - size) / 2f,
                 (w + size) / 2f, pad + (baseSize - size) / 2f + size
