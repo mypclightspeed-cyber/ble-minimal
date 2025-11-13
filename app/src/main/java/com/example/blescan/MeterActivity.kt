@@ -783,6 +783,7 @@ class MeterActivity : AppCompatActivity() {
             val h = height.toFloat()
             val baseSize = min(w - pad * 2, h * 2.0f - pad * 2)
             val size = baseSize * radiusScale
+            val verticalOffset = 30f
             val rect = RectF(
                 (w - size) / 2f, pad + (baseSize - size) / 2f,
                 (w + size) / 2f, pad + (baseSize - size) / 2f + size
