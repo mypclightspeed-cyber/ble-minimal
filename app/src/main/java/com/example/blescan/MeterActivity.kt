@@ -469,7 +469,7 @@ class MeterActivity : AppCompatActivity() {
         private var label = "SOC"
 
         // radius shrink factor (B1)
-        private val radiusScale = 0.75f
+        private val radiusScale = 0.85f
 
         private val track = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.parseColor("#E5E7EB") // gray-200
@@ -662,7 +662,7 @@ class MeterActivity : AppCompatActivity() {
         private var label = "Temp"
 
         // radius shrink factor (B1)
-        private val radiusScale = 0.75f
+        private val radiusScale = 0.85f
 
         private val track = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.parseColor("#E5E7EB") // gray-200
