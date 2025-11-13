@@ -758,15 +758,15 @@ class MeterActivity : AppCompatActivity() {
             val whiteSweep = ((redRangeStart - blueRangeEnd) / 100f) * sweepTotal
             
             // Draw blue segment (-5 to +15°C)
-            progress.color = Color.BLUE
+            progress.color = Color.parseColor("#EB4A25")
             c.drawArc(rect, startAngle, blueSweep, false, progress)
             
             // Draw white segment (+15 to +65°C)
-            progress.color = Color.WHITE
-            c.drawArc(rect, startAngle + blueSweep, whiteSweep, false, progress)
+ //           progress.color = Color.WHITE
+ //           c.drawArc(rect, startAngle + blueSweep, whiteSweep, false, progress)
             
             // Draw red segment (+65 to +95°C)
-            progress.color = Color.RED
+            progress.color = Color.parseColor("#25C6EB")
             c.drawArc(rect, startAngle + blueSweep + whiteSweep, redSweep, false, progress)
 
             // ticks (bold at -5/50/95, thin each 10°C)
