@@ -112,7 +112,7 @@ class MeterActivity : AppCompatActivity() {
         val gaugeLayout = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, 400
+                LinearLayout.LayoutParams.MATCH_PARENT, 500  // افزایش ارتفاع برای نمایش مقادیر زیر گیج
             ).apply { setMargins(16, 10, 16, 6) }
             weightSum = 3f
         }
@@ -178,8 +178,11 @@ class MeterActivity : AppCompatActivity() {
             addView(logo)
             addView(bannerWarn)
             addView(btnScan)
+            
+            // لیست دستگاه‌های بلوتوث با ارتفاع محدود
             addView(list, LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
+                LinearLayout.LayoutParams.MATCH_PARENT, 300)) // ارتفاع ثابت برای لیست
+            
             addView(gaugeLayout)    // Both gauges above parameters
             addView(cardVolt)
             addView(cardCurr)
@@ -463,7 +466,7 @@ class MeterActivity : AppCompatActivity() {
         super.onDestroy()
     }
 
-    // ===== Gauge SOC Style 3 (Modern half-circle): A1 sweep 180°, start at 180°, radius shrink 0.75, red pointer with glowing red shadow, blue SOC text upper-middle =====
+    // ===== Gauge SOC Style 3 (Modern half-circle) =====
     class ModernHalfGauge(context: Context) : View(context) {
         private var pct = 0
         private var label = "SOC"
@@ -528,7 +531,7 @@ class MeterActivity : AppCompatActivity() {
 
         override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
             val w = MeasureSpec.getSize(widthMeasureSpec)
-            val h = max((w * 0.55f).roundToInt(), 260)
+            val h = max((w * 0.65f).roundToInt(), 320) // افزایش ارتفاع برای نمایش مقادیر زیر گیج
             setMeasuredDimension(w, h)
         }
 
@@ -537,7 +540,7 @@ class MeterActivity : AppCompatActivity() {
             val pad = 26f
             val w = width.toFloat()
             val h = height.toFloat()
-            val baseSize = min(w - pad * 2, h * 2.0f - pad * 2)
+            val baseSize = min(w - pad * 2, (h - 80) * 2.0f - pad * 2) // کاهش ارتفاع baseSize برای فضای بیشتر
             val size = baseSize * radiusScale
             val rect = RectF(
                 (w - size) / 2f, pad + (baseSize - size) / 2f,
@@ -590,7 +593,7 @@ class MeterActivity : AppCompatActivity() {
             
             // مقدار درصد در زیر گیج
             val pctText = "$pct%"
-            val pctY = rect.bottom + 50f // فاصله از پایین گیج
+            val pctY = rect.bottom + 60f // فاصله بیشتر از پایین گیج
             val pctBaseline = pctY - (fm.ascent + fm.descent) / 2f
             c.drawText(pctText, rect.centerX(), pctBaseline, pctPaint)
         }
@@ -656,7 +659,7 @@ class MeterActivity : AppCompatActivity() {
         }
     }
 
-    // ===== Temperature Gauge (Modern half-circle): Same as SOC gauge but with temperature range -5 to 95°C =====
+    // ===== Temperature Gauge (Modern half-circle) =====
     class ModernHalfGaugeTemp(context: Context) : View(context) {
         private var temp = 0
         private var label = "Temp"
@@ -721,7 +724,7 @@ class MeterActivity : AppCompatActivity() {
 
         override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
             val w = MeasureSpec.getSize(widthMeasureSpec)
-            val h = max((w * 0.55f).roundToInt(), 260)
+            val h = max((w * 0.65f).roundToInt(), 320) // افزایش ارتفاع برای نمایش مقادیر زیر گیج
             setMeasuredDimension(w, h)
         }
 
@@ -730,7 +733,7 @@ class MeterActivity : AppCompatActivity() {
             val pad = 26f
             val w = width.toFloat()
             val h = height.toFloat()
-            val baseSize = min(w - pad * 2, h * 2.0f - pad * 2)
+            val baseSize = min(w - pad * 2, (h - 80) * 2.0f - pad * 2) // کاهش ارتفاع baseSize برای فضای بیشتر
             val size = baseSize * radiusScale
             val rect = RectF(
                 (w - size) / 2f, pad + (baseSize - size) / 2f,
@@ -794,7 +797,7 @@ class MeterActivity : AppCompatActivity() {
             
             // مقدار دما در زیر گیج
             val tempValueText = "$temp°C"
-            val valueY = rect.bottom + 50f // فاصله از پایین گیج
+            val valueY = rect.bottom + 60f // فاصله بیشتر از پایین گیج
             val valueBaseline = valueY - (fm.ascent + fm.descent) / 2f
             c.drawText(tempValueText, rect.centerX(), valueBaseline, valuePaint)
         }
