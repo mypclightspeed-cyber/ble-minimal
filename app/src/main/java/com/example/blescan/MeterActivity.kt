@@ -156,7 +156,7 @@ class MeterActivity : AppCompatActivity() {
                 0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.8f
             ).apply { setMargins(8, 0, 8, 0) }
             text = "0%"
-            textSize = 28f
+            textSize = 24f
             setTextColor(Color.parseColor("#2563EB"))
             gravity = Gravity.CENTER
             typeface = Typeface.create(Typeface.DEFAULT_BOLD, Typeface.BOLD)
@@ -168,7 +168,7 @@ class MeterActivity : AppCompatActivity() {
                 0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.2f
             ).apply { setMargins(8, 0, 8, 0) }
             text = "0°C"
-            textSize = 28f
+            textSize = 24f
             setTextColor(Color.parseColor("#2563EB"))
             gravity = Gravity.CENTER
             typeface = Typeface.create(Typeface.DEFAULT_BOLD, Typeface.BOLD)
@@ -577,7 +577,7 @@ class MeterActivity : AppCompatActivity() {
         private val socPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.parseColor("#2563EB") // blue
             textAlign = Paint.Align.CENTER
-            textSize = 42f
+            textSize = 50f
             typeface = Typeface.create(Typeface.DEFAULT_BOLD, Typeface.BOLD)
         }
         // Arc labels — large
@@ -757,7 +757,7 @@ class MeterActivity : AppCompatActivity() {
         private val labelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.parseColor("#2563EB") // blue
             textAlign = Paint.Align.CENTER
-            textSize = 32f
+            textSize = 40f
             typeface = Typeface.create(Typeface.DEFAULT_BOLD, Typeface.BOLD)
         }
         // Arc labels — large
