@@ -114,13 +114,13 @@ class MeterActivity : AppCompatActivity() {
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 300
             ).apply { setMargins(16, 10, 16, 6) }
-            weightSum = 2f
+            weightSum = 3f
         }
 
         // SOC Gauge
         gaugeSOC = ModernHalfGauge(this).apply {
             layoutParams = LinearLayout.LayoutParams(
-                0, LinearLayout.LayoutParams.MATCH_PARENT, 1f
+                0, LinearLayout.LayoutParams.MATCH_PARENT, 1.8f
             ).apply { setMargins(8, 0, 8, 0) }
             setLabel("SOC")
             setPercent(0)
@@ -129,7 +129,7 @@ class MeterActivity : AppCompatActivity() {
         // Temperature Gauge
         gaugeTemp = ModernHalfGaugeTemp(this).apply {
             layoutParams = LinearLayout.LayoutParams(
-                0, LinearLayout.LayoutParams.MATCH_PARENT, 1f
+                0, LinearLayout.LayoutParams.MATCH_PARENT, 1.2f
             ).apply { setMargins(8, 0, 8, 0) }
             setLabel("Temp")
             setPercent(0)
