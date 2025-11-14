@@ -151,7 +151,7 @@ class MeterActivity : AppCompatActivity() {
             val card = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
                 setPadding(24, 18, 24, 18)
-                setBackgroundColor(Color.parseColor("#FFFF00"))
+                setBackgroundColor(Color.parseColor("#F59E0B"))
                 val lp = LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
                 )
@@ -193,10 +193,11 @@ class MeterActivity : AppCompatActivity() {
         }
 
         // ترتیب جدید: اول ولتاژ، بعد جریان، بعد دما، در آخر device
-        val (cardVolt, voltValue) = makeCard("Voltage (V)", "#10B981")
-        val (cardCurr, currValue) = makeCard("Current (A)", "#F59E0B")
-        val (cardTemp, tempPair) = makeThermometerCard()
         val (cardName, nameValue) = makeCard("Device", "#3B82F6")
+        val (cardVolt, voltValue) = makeCard("Voltage (V)", "#10B981")
+        val (cardCurr, currValue) = makeCard("Current (A)", "#DC143C")
+        val (cardTemp, tempPair) = makeThermometerCard()
+        
         
         tvVolt = voltValue
         tvCurr = currValue
@@ -213,10 +214,10 @@ class MeterActivity : AppCompatActivity() {
             addView(list, LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
             addView(gauge)          // gauge ABOVE parameters
-            addView(cardVolt)       // اول ولتاژ
-            addView(cardCurr)       // بعد جریان
-            addView(cardTemp)       // بعد دما با دماسنج
-            addView(cardName)       // در آخر device
+            addView(cardName)
+            addView(cardVolt)
+            addView(cardCurr)
+            addView(cardTemp)
         }
         setContentView(root)
 
@@ -502,19 +503,20 @@ class MeterActivity : AppCompatActivity() {
         private var temperature = 0.0
         
         private val casePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.parseColor("#E5E7EB")
+            color = Color.parseColor("#FFFFFF")
+            style = Paint.Style.FILL
+        }
+        private val bulbPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#25AFFF")
             style = Paint.Style.FILL
         }
         
         private val mercuryPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.parseColor("#EF4444") // Default red
+            color = Color.parseColor("#25AFFF") // Default red
             style = Paint.Style.FILL
         }
         
-        private val bulbPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.parseColor("#EF4444")
-            style = Paint.Style.FILL
-        }
+        
         
         private val scalePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.parseColor("#6B7280")
@@ -535,11 +537,11 @@ class MeterActivity : AppCompatActivity() {
             val centerX = width / 2
             
             // Draw thermometer case (outer tube)
-            val tubeWidth = width * 0.2f
+            val tubeWidth = width * 0.25f
             val tubeLeft = centerX - tubeWidth / 2
             val tubeRight = centerX + tubeWidth / 2
-            val tubeTop = height * 0.1f
-            val tubeBottom = height * 0.8f
+            val tubeTop = height * 0.05f
+            val tubeBottom = height * 0.9f
             val tubeHeight = tubeBottom - tubeTop
             
             // Draw outer case
@@ -549,20 +551,20 @@ class MeterActivity : AppCompatActivity() {
             )
             
             // Draw bulb at bottom
-            val bulbRadius = tubeWidth * 1.2f
+            val bulbRadius = tubeWidth * 1.1f
             canvas.drawCircle(centerX, tubeBottom + bulbRadius * 0.6f, bulbRadius, bulbPaint)
             
             // Calculate mercury level based on temperature (-20°C to 60°C range)
-            val minTemp = -20.0
-            val maxTemp = 60.0
+            val minTemp = -10.0
+            val maxTemp = 90.0
             val normalizedTemp = (temperature - minTemp) / (maxTemp - minTemp)
             val mercuryLevel = tubeBottom - (tubeHeight * normalizedTemp.toFloat().coerceIn(0f, 1f))
             
             // Update mercury color based on temperature
             mercuryPaint.color = when {
-                temperature < 15 -> Color.parseColor("#3B82F6") // Light blue for cold
+                temperature < 15 -> Color.parseColor("#25AFFF") // Light blue for cold
                 temperature > 45 -> Color.parseColor("#DC2626") // Bright red for hot
-                else -> Color.parseColor("#EF4444") // Normal red
+                else -> Color.parseColor("#25AFFF") // Light blue
             }
             
             bulbPaint.color = mercuryPaint.color
