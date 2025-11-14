@@ -552,7 +552,7 @@ class MeterActivity : AppCompatActivity() {
             
             // Draw bulb at bottom
             val bulbRadius = tubeWidth * 1.1f
-            canvas.drawCircle(centerX, tubeBottom + bulbRadius * 0.6f, bulbRadius, bulbPaint)
+            canvas.drawCircle(centerX, tubeBottom + bulbRadius * 0.8f, bulbRadius, bulbPaint)
             
             // Calculate mercury level based on temperature (-20°C to 60°C range)
             val minTemp = -10.0
