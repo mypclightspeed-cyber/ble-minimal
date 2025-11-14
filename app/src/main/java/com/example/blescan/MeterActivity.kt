@@ -540,8 +540,8 @@ class MeterActivity : AppCompatActivity() {
             val tubeWidth = width * 0.25f
             val tubeLeft = centerX - tubeWidth / 2
             val tubeRight = centerX + tubeWidth / 2
-            val tubeTop = height * 0.1f
-            val tubeBottom = height * 0.6f
+            val tubeTop = height * 0.05f
+            val tubeBottom = height * 0.75f
             val tubeHeight = tubeBottom - tubeTop
             
             // Draw outer case
