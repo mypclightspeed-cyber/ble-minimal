@@ -553,7 +553,7 @@ class MeterActivity : AppCompatActivity() {
             
             // Draw bulb at bottom - با فاصله از پایین
             val bulbRadius = tubeWidth * 0.9f
-            val bulbCenterY = height - bulbRadius * 0.6f // موقعیت bulb از پایین
+            val bulbCenterY = height - bulbRadius * 0.7f // موقعیت bulb از پایین
             
             canvas.drawCircle(centerX, bulbCenterY, bulbRadius, bulbPaint)
             
