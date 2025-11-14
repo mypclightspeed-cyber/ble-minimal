@@ -1,6 +1,7 @@
 package com.example.blescan
 
 import android.Manifest
+import kotlin.math.min
 import android.bluetooth.*
 import android.bluetooth.le.*
 import android.content.Context
@@ -12,6 +13,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.animation.ValueAnimator
 import android.provider.Settings
 import android.view.View
 import android.widget.*
@@ -48,6 +50,7 @@ class MeterActivity : AppCompatActivity() {
     private lateinit var btnScan: Button
     private lateinit var list: ListView
     private lateinit var gauge: ModernHalfGauge
+    private lateinit var thermometerView: ThermometerView
 
     private lateinit var tvVolt: TextView
     private lateinit var tvCurr: TextView
@@ -117,7 +120,7 @@ class MeterActivity : AppCompatActivity() {
             setPercent(0)
         }
 
-        fun makeCard(title: String, colorHex: String, customView: View? = null): Pair<LinearLayout, Pair<TextView, TextView>> {
+        fun makeCard(title: String, colorHex: String): Pair<LinearLayout, Pair<TextView, TextView>> {
             val card = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
                 setPadding(24, 18, 24, 18)
@@ -135,59 +138,75 @@ class MeterActivity : AppCompatActivity() {
                 setTypeface(typeface, Typeface.BOLD) // titles bold
                 setTextColor(Color.WHITE)
             }
-            
-            if (customView != null) {
-                val container = LinearLayout(this).apply {
-                    orientation = LinearLayout.HORIZONTAL
-                    layoutParams = LinearLayout.LayoutParams(
-                        LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
-                    )
-                    gravity = Gravity.CENTER_VERTICAL
-                }
-                
-                val valueTv = TextView(this).apply {
-                    layoutParams = LinearLayout.LayoutParams(
-                        0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f
-                    )
-                    text = "-"
-                    textSize = 26f // NOT bold
-                    setTextColor(Color.WHITE)
-                    gravity = Gravity.CENTER
-                }
-                
-                container.addView(valueTv)
-                container.addView(customView)
-                
-                card.addView(titleTv)
-                card.addView(container)
-                return card to (titleTv to valueTv)
-            } else {
-                val valueTv = TextView(this).apply {
-                    text = "-"
-                    textSize = 26f // NOT bold
-                    setTextColor(Color.WHITE)
-                }
-                card.addView(titleTv); card.addView(valueTv)
-                return card to (titleTv to valueTv)
+            val valueTv = TextView(this).apply {
+                text = "-"
+                textSize = 26f // NOT bold
+                setTextColor(Color.WHITE)
+            }
+            card.addView(titleTv); card.addView(valueTv)
+            return card to (titleTv to valueTv)
+        }
+
+
+        // helper for dp to px inside onCreate
+        fun dpToPx(v: Float): Int = (v * resources.displayMetrics.density).toInt()
+
+        // Temperature card: custom layout with red value in front of label and compact thermometer
+        val cardTemp = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(24, 18, 24, 18)
+            setBackgroundColor(Color.parseColor("#EF4444"))
+            val lp = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+            lp.setMargins(16, 10, 16, 10)
+            layoutParams = lp
+            elevation = 6f
+        }
+
+        // Header row: red temperature value BEFORE label text
+        val tempHeader = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+        }
+
+        tvTemp = TextView(this).apply {
+            text = "--.-°C"
+            textSize = 18f
+            setTextColor(Color.parseColor("#FCA5A5")) // light red value
+        }
+
+        val tvTempLabel = TextView(this).apply {
+            text = "Temperature (°C)"
+            textSize = 16f
+            setTypeface(typeface, Typeface.BOLD)
+            setTextColor(Color.WHITE)
+            setPadding(16, 0, 0, 0)
+        }
+
+        tempHeader.addView(tvTemp)
+        tempHeader.addView(tvTempLabel)
+        cardTemp.addView(tempHeader)
+
+        // Compact thermometer bar (roughly 1/4 of typical card height)
+        thermometerView = ThermometerView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dpToPx(60f)
+            ).apply {
+                topMargin = 12
             }
         }
+        cardTemp.addView(thermometerView)
 
-        // Create custom thermometer view for temperature card
-        val thermometerView = ThermometerView(this).apply {
-            layoutParams = LinearLayout.LayoutParams(80, 120)
-        }
-
-        // Create cards in new order: Voltage -> Current -> Temperature -> Device
+        // Other cards use the generic factory
         val (cardVolt, pairVolt) = makeCard("Voltage (V)", "#10B981")
         val (cardCurr, pairCurr) = makeCard("Current (A)", "#F59E0B")
-        val (cardTemp, pairTemp) = makeCard("Temperature", "#EF4444", thermometerView)
-        val (cardName, pairName) = makeCard("Device", "#3B82F6")
-        
+        val (cardName, pairName) = makeCard("Device",      "#3B82F6")
         tvVolt = pairVolt.second
         tvCurr = pairCurr.second
-        tvTemp = pairTemp.second
         tvName = pairName.second
 
+        // Root layout: gauge, then Voltage, Current, Temperature, Device
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(12, 12, 12, 12)
@@ -197,10 +216,10 @@ class MeterActivity : AppCompatActivity() {
             addView(list, LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
             addView(gauge)          // gauge ABOVE parameters
-            addView(cardVolt)       // Voltage first
-            addView(cardCurr)       // Current second
-            addView(cardTemp)       // Temperature third (with thermometer)
-            addView(cardName)       // Device last
+            addView(cardVolt)
+            addView(cardCurr)
+            addView(cardTemp)
+            addView(cardName)
         }
         setContentView(root)
 
@@ -317,7 +336,6 @@ class MeterActivity : AppCompatActivity() {
         gauge.setPercent(0)
         tvVolt.text = "-"
         tvCurr.text = "-"
-        tvTemp.text = "-"
         tvName.text = ""
 
         scanning = true
@@ -436,44 +454,31 @@ class MeterActivity : AppCompatActivity() {
         val current = iRaw / 100.0
         val soc = p[19].toInt() and 0xFF
 
-        // Temperature extraction per JBD (0x03) with null fallback
+                // Temperature extraction per JBD (0x03) with null fallback
         val dataStart = 4
-        var tempText = "null"
-        var tempValue = 0.0
+        var tempText = "--.-°C"
+        var tempCValue: Double? = null
         if (p.size > dataStart + 22) {
             val ntcCount = p[dataStart + 22].toInt() and 0xFF
             val firstTempIdx = dataStart + 23
             if (ntcCount > 0 && p.size >= firstTempIdx + 2) {
                 val tRaw = ((p[firstTempIdx].toInt() and 0xFF) shl 8) or (p[firstTempIdx + 1].toInt() and 0xFF)
-                tempValue = (tRaw - 2731) / 10.0
-                if (!tempValue.isNaN() && tempValue > -100 && tempValue < 200) {
-                    tempText = String.format("%.1f °C", tempValue)
+                val tempC = (tRaw - 2731) / 10.0
+                if (!tempC.isNaN() && tempC > -100 && tempC < 200) {
+                    tempCValue = tempC
+                    tempText = String.format("%.1f°C", tempC)
                 }
             }
         }
 
-        runOnUiThread {
+runOnUiThread {
             gauge.setPercent(soc.coerceIn(0, 100))
             tvVolt.text = String.format("%.3f V", voltage)
             tvCurr.text = String.format("%.3f A", current)
             tvTemp.text = tempText
-            
-            // Find and update thermometer view
-            val rootView = window.decorView.rootView
-            val thermometer = findThermometerView(rootView)
-            thermometer?.setTemperature(tempValue.toInt())
+            // Drive the thermometer animation when we have a valid reading
+            tempCValue?.let { thermometerView.setTemperature(it.toFloat()) }
         }
-    }
-    
-    private fun findThermometerView(view: View): ThermometerView? {
-        if (view is ThermometerView) return view
-        if (view is ViewGroup) {
-            for (i in 0 until view.childCount) {
-                val result = findThermometerView(view.getChildAt(i))
-                if (result != null) return result
-            }
-        }
-        return null
     }
 
     // --- helpers / utils ---
@@ -493,133 +498,6 @@ class MeterActivity : AppCompatActivity() {
         handler.removeCallbacks(pollTask)
         gatt?.close()
         super.onDestroy()
-    }
-
-    // ===== Thermometer View with Animated Mercury =====
-    class ThermometerView(context: Context) : View(context) {
-        private var temperature = 0
-        private val animationHandler = Handler(Looper.getMainLooper())
-        private var currentAnimationLevel = 0f
-        
-        private val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.parseColor("#E5E7EB")
-            style = Paint.Style.FILL
-        }
-        
-        private val mercuryPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.parseColor("#EF4444")
-            style = Paint.Style.FILL
-        }
-        
-        private val outlinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.parseColor("#9CA3AF")
-            style = Paint.Style.STROKE
-            strokeWidth = 3f
-        }
-        
-        private val bulbPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.parseColor("#EF4444")
-            style = Paint.Style.FILL
-        }
-        
-        private val bulbOutlinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.parseColor("#9CA3AF")
-            style = Paint.Style.STROKE
-            strokeWidth = 3f
-        }
-
-        fun setTemperature(temp: Int) {
-            val oldTemp = temperature
-            temperature = temp.coerceIn(-5, 95)
-            
-            // Animate mercury level
-            val targetLevel = ((temperature + 5) / 100.0f) // Convert to 0-1 range
-            animateMercury(currentAnimationLevel, targetLevel)
-        }
-
-        private fun animateMercury(from: Float, to: Float) {
-            val startTime = System.currentTimeMillis()
-            val duration = 800L // milliseconds
-            
-            val animator = object : Runnable {
-                override fun run() {
-                    val elapsed = System.currentTimeMillis() - startTime
-                    val progress = (elapsed.toFloat() / duration).coerceIn(0f, 1f)
-                    
-                    // Ease out interpolation
-                    currentAnimationLevel = from + (to - from) * easeOut(progress)
-                    
-                    invalidate()
-                    
-                    if (progress < 1f) {
-                        animationHandler.postDelayed(this, 16) // ~60fps
-                    }
-                }
-            }
-            
-            animationHandler.post(animator)
-        }
-        
-        private fun easeOut(t: Float): Float {
-            return 1f - (1f - t) * (1f - t) * (1f - t)
-        }
-
-        override fun onDraw(canvas: Canvas) {
-            super.onDraw(canvas)
-            
-            val width = width.toFloat()
-            val height = height.toFloat()
-            val centerX = width / 2
-            
-            // Draw thermometer bulb (bottom)
-            val bulbRadius = width * 0.3f
-            val bulbY = height - bulbRadius
-            
-            // Draw thermometer stem
-            val stemWidth = width * 0.2f
-            val stemLeft = centerX - stemWidth / 2
-            val stemRight = centerX + stemWidth / 2
-            val stemTop = height * 0.1f
-            val stemBottom = bulbY - 5f
-            
-            // Draw stem background
-            canvas.drawRect(stemLeft, stemTop, stemRight, stemBottom, bgPaint)
-            canvas.drawRect(stemLeft, stemTop, stemRight, stemBottom, outlinePaint)
-            
-            // Draw mercury level with animation
-            val mercuryTop = stemBottom - (stemBottom - stemTop) * currentAnimationLevel
-            canvas.drawRect(stemLeft + 2, mercuryTop, stemRight - 2, stemBottom - 2, mercuryPaint)
-            
-            // Draw bulb
-            canvas.drawCircle(centerX, bulbY, bulbRadius, bulbPaint)
-            canvas.drawCircle(centerX, bulbY, bulbRadius, bulbOutlinePaint)
-            
-            // Draw scale marks
-            drawScaleMarks(canvas, stemLeft, stemTop, stemRight, stemBottom)
-        }
-        
-        private fun drawScaleMarks(canvas: Canvas, left: Float, top: Float, right: Float, bottom: Float) {
-            val markPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                color = Color.parseColor("#6B7280")
-                style = Paint.Style.STROKE
-                strokeWidth = 2f
-            }
-            
-            val stemHeight = bottom - top
-            val marks = listOf(-5, 20, 45, 70, 95)
-            
-            for (mark in marks) {
-                val position = ((mark + 5) / 100.0f)
-                val y = bottom - stemHeight * position
-                
-                // Draw longer marks for key temperatures
-                if (mark % 25 == 0) {
-                    canvas.drawLine(left - 10, y, right + 10, y, markPaint)
-                } else {
-                    canvas.drawLine(left - 5, y, right + 5, y, markPaint)
-                }
-            }
-        }
     }
 
     // ===== Gauge Style 3 (Modern half-circle): A1 sweep 180°, start at 180°, radius shrink 0.75, red pointer with glowing red shadow, blue SOC text upper-middle =====
@@ -813,5 +691,133 @@ class MeterActivity : AppCompatActivity() {
             c.drawPath(path, pointer)
             c.drawCircle(cx, cy, 12f, pointer)
         }
+
+
+class ThermometerView(context: Context) : View(context) {
+
+    private val minTemp = -20f
+    private val maxTemp = 80f
+
+    private var level = 0f          // 0..1 for mercury height
+    private var currentTemp = 0f    // for label
+
+    private val tubePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.parseColor("#FEE2E2") // light background tube
+        style = Paint.Style.STROKE
+        strokeWidth = 0f // will be set dynamically
+        strokeCap = Paint.Cap.ROUND
+    }
+
+    private val mercuryPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+    }
+
+    private val bulbPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+    }
+
+    private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.WHITE
+        textAlign = Paint.Align.CENTER
+        textSize = dp(12f)
+    }
+
+    private fun dp(v: Float) = v * resources.displayMetrics.density
+
+    override fun onDraw(canvas: Canvas) {
+        super.onDraw(canvas)
+
+        val w = width.toFloat()
+        val h = height.toFloat()
+        if (w <= 0 || h <= 0) return
+
+        val cx = w / 2f
+        val bulbRadius = min(w, h) / 6f
+        val tubeTop = paddingTop + dp(4f)
+        val tubeBottom = h - paddingBottom - bulbRadius * 1.3f
+
+        // Tube width wide enough to show level nicely
+        val tubeWidth = bulbRadius * 0.8f
+
+        // Draw background tube
+        tubePaint.strokeWidth = tubeWidth
+        canvas.drawLine(cx, tubeTop, cx, tubeBottom, tubePaint)
+
+        // Compute current color based on temperature
+        val (baseColor, darkerColor) = colorForTemp(currentTemp)
+
+        // Mercury level (0..1)
+        val clampedLevel = level.coerceIn(0f, 1f)
+        val mercuryTop = tubeBottom - (tubeBottom - tubeTop) * clampedLevel
+
+        // Gradient mercury column above bulb
+        val gradient = LinearGradient(
+            cx, mercuryTop,
+            cx, tubeBottom,
+            baseColor,
+            darkerColor,
+            Shader.TileMode.CLAMP
+        )
+        mercuryPaint.shader = gradient
+
+        canvas.drawRect(
+            cx - tubeWidth / 2f,
+            mercuryTop,
+            cx + tubeWidth / 2f,
+            tubeBottom,
+            mercuryPaint
+        )
+
+        // Mercury bulb at bottom, solid color
+        mercuryPaint.shader = null
+        bulbPaint.color = baseColor
+        canvas.drawCircle(cx, tubeBottom + bulbRadius * 0.4f, bulbRadius, bulbPaint)
+
+        // Temperature label above the bar
+        val label = String.format("%.1f°C", currentTemp)
+        canvas.drawText(label, cx, tubeTop + textPaint.textSize, textPaint)
+    }
+
+    private fun colorForTemp(temp: Float): Pair<Int, Int> {
+        // Below 25 -> light blue, between 25-45 -> gray, above 45 -> red
+        return when {
+            temp < 25f -> {
+                val base = Color.parseColor("#60A5FA") // blue-400
+                val dark = Color.parseColor("#1D4ED8") // blue-700
+                base to dark
+            }
+            temp > 45f -> {
+                val base = Color.parseColor("#F87171") // red-400
+                val dark = Color.parseColor("#B91C1C") // red-700
+                base to dark
+            }
+            else -> {
+                val base = Color.parseColor("#9CA3AF") // gray-400
+                val dark = Color.parseColor("#4B5563") // gray-700
+                base to dark
+            }
+        }
+    }
+
+    /**
+     * Animate the mercury level based on temperature in °C
+     */
+    fun setTemperature(tempC: Float) {
+        currentTemp = tempC
+
+        val clamped = tempC.coerceIn(minTemp, maxTemp)
+        val newLevel = (clamped - minTemp) / (maxTemp - minTemp)
+
+        val startLevel = level
+        val animator = ValueAnimator.ofFloat(startLevel, newLevel)
+        animator.duration = 600
+        animator.addUpdateListener {
+            level = it.animatedValue as Float
+            invalidate()
+        }
+        animator.start()
+    }
+}
+
     }
 }
