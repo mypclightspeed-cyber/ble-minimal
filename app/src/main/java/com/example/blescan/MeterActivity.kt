@@ -107,7 +107,7 @@ class MeterActivity : AppCompatActivity() {
             visibility = View.GONE
         }
 
-        btnScan = Button(this).apply { text = "Start Scan (20s)" }
+        btnScan = Button(this).apply { text = "Scan Amitis BMS" }
         list = ListView(this)
 
         // Gauge style 3 (modern half-circle) with A1: 180° sweep, start at 180°
@@ -151,7 +151,7 @@ class MeterActivity : AppCompatActivity() {
             val card = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
                 setPadding(24, 18, 24, 18)
-                setBackgroundColor(Color.parseColor("#EF4444"))
+                setBackgroundColor(Color.parseColor("#FFFF00"))
                 val lp = LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
                 )
