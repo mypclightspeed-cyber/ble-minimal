@@ -538,10 +538,10 @@ class MeterActivity : AppCompatActivity() {
             val centerX = width / 2
             
             // تنظیمات جدید برای نمایش بهتر
-            val tubeWidth = width * 0.15f
+            val tubeWidth = width * 0.2f
             val tubeLeft = centerX - tubeWidth / 2
             val tubeRight = centerX + tubeWidth / 2
-            val tubeTop = height * 0.05f  // شروع از بالاتر
+            val tubeTop = height * 0.1f  // شروع از بالاتر
             val tubeBottom = height * 0.75f // پایان بالاتر برای فضای بیشتر برای bulb
             val tubeHeight = tubeBottom - tubeTop
             
