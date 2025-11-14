@@ -164,7 +164,9 @@ class MeterActivity : AppCompatActivity() {
                 orientation = LinearLayout.VERTICAL
                 layoutParams = LinearLayout.LayoutParams(
                     0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f
-                )
+                ).apply {
+                    rightMargin = 20 // ایجاد فاصله بین متن و ترمومتر
+                }
             }
             
             val titleTv = TextView(this).apply {
@@ -183,7 +185,7 @@ class MeterActivity : AppCompatActivity() {
             leftLayout.addView(valueTv)
             
             val thermometer = ThermometerView(this).apply {
-                layoutParams = LinearLayout.LayoutParams(80, 120)
+                layoutParams = LinearLayout.LayoutParams(100, 140) // افزایش ارتفاع و عرض
             }
             
             card.addView(leftLayout)
@@ -503,20 +505,19 @@ class MeterActivity : AppCompatActivity() {
         private var temperature = 0.0
         
         private val casePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.parseColor("#FFFFFF")
+            color = Color.parseColor("#E5E7EB") // Light gray for case
             style = Paint.Style.FILL
         }
+        
         private val bulbPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.parseColor("#25AFFF")
             style = Paint.Style.FILL
         }
         
         private val mercuryPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.parseColor("#25AFFF") // Default red
+            color = Color.parseColor("#25AFFF")
             style = Paint.Style.FILL
         }
-        
-        
         
         private val scalePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.parseColor("#6B7280")
@@ -536,23 +537,25 @@ class MeterActivity : AppCompatActivity() {
             val height = height.toFloat()
             val centerX = width / 2
             
-            // Draw thermometer case (outer tube)
-            val tubeWidth = width * 0.25f
+            // تنظیمات جدید برای نمایش بهتر
+            val tubeWidth = width * 0.3f
             val tubeLeft = centerX - tubeWidth / 2
             val tubeRight = centerX + tubeWidth / 2
-            val tubeTop = height * 0.05f
-            val tubeBottom = height * 0.75f
+            val tubeTop = height * 0.1f  // شروع از بالاتر
+            val tubeBottom = height * 0.7f // پایان بالاتر برای فضای بیشتر برای bulb
             val tubeHeight = tubeBottom - tubeTop
             
             // Draw outer case
             canvas.drawRoundRect(
                 tubeLeft, tubeTop, tubeRight, tubeBottom, 
-                tubeWidth / 2, tubeWidth / 2, casePaint
+                tubeWidth / 3, tubeWidth / 3, casePaint
             )
             
-            // Draw bulb at bottom
-            val bulbRadius = tubeWidth * 1.1f
-            canvas.drawCircle(centerX, tubeBottom + bulbRadius * 0.8f, bulbRadius, bulbPaint)
+            // Draw bulb at bottom - با فاصله از پایین
+            val bulbRadius = tubeWidth * 1.2f
+            val bulbCenterY = height - bulbRadius * 0.6f // موقعیت bulb از پایین
+            
+            canvas.drawCircle(centerX, bulbCenterY, bulbRadius, bulbPaint)
             
             // Calculate mercury level based on temperature (-20°C to 60°C range)
             val minTemp = -10.0
@@ -569,18 +572,20 @@ class MeterActivity : AppCompatActivity() {
             
             bulbPaint.color = mercuryPaint.color
             
-            // Draw mercury column
+            // Draw mercury column - فقط تا بالای bulb
             val mercuryWidth = tubeWidth * 0.5f
             val mercuryLeft = centerX - mercuryWidth / 2
             val mercuryRight = centerX + mercuryWidth / 2
             
+            val mercuryBottom = tubeBottom.coerceAtMost(bulbCenterY - bulbRadius * 0.3f)
+            
             canvas.drawRoundRect(
-                mercuryLeft, mercuryLevel, mercuryRight, tubeBottom, 
+                mercuryLeft, mercuryLevel, mercuryRight, mercuryBottom, 
                 mercuryWidth / 2, mercuryWidth / 2, mercuryPaint
             )
             
             // Draw scale marks
-            val scaleCount = 5
+            val scaleCount = 6
             for (i in 0 until scaleCount) {
                 val markY = tubeTop + (tubeHeight * i / (scaleCount - 1))
                 canvas.drawLine(
@@ -588,6 +593,16 @@ class MeterActivity : AppCompatActivity() {
                     tubeRight + 15, markY, scalePaint
                 )
             }
+            
+            // Draw connecting line between tube and bulb
+            val connectorWidth = tubeWidth * 0.4f
+            val connectorLeft = centerX - connectorWidth / 2
+            val connectorRight = centerX + connectorWidth / 2
+            canvas.drawRect(
+                connectorLeft, tubeBottom,
+                connectorRight, bulbCenterY - bulbRadius * 0.8f,
+                casePaint
+            )
         }
     }
 
