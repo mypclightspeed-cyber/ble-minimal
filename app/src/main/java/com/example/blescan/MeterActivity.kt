@@ -557,8 +557,8 @@ class MeterActivity : AppCompatActivity() {
             
             canvas.drawCircle(centerX, bulbCenterY, bulbRadius, bulbPaint)
             
-            // Calculate mercury level based on temperature (-20°C to 60°C range)
-            val minTemp = -10.0
+            // Calculate mercury level based on temperature (0°C to 90°C range)
+            val minTemp = 0
             val maxTemp = 90.0
             val normalizedTemp = (temperature - minTemp) / (maxTemp - minTemp)
             val mercuryLevel = tubeBottom - (tubeHeight * normalizedTemp.toFloat().coerceIn(0f, 1f))
@@ -577,7 +577,7 @@ class MeterActivity : AppCompatActivity() {
             val mercuryLeft = centerX - mercuryWidth / 2
             val mercuryRight = centerX + mercuryWidth / 2
             
-            val mercuryBottom = tubeBottom.coerceAtMost(bulbCenterY - bulbRadius * 0.3f)
+            val mercuryBottom = tubeBottom.coerceAtMost(bulbCenterY - bulbRadius * 0.5f)
             
             canvas.drawRoundRect(
                 mercuryLeft, mercuryLevel, mercuryRight, mercuryBottom, 
