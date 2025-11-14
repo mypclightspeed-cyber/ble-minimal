@@ -1,7 +1,6 @@
 package com.example.blescan
 
 import android.Manifest
-import kotlin.math.min
 import android.bluetooth.*
 import android.bluetooth.le.*
 import android.content.Context
@@ -151,7 +150,7 @@ class MeterActivity : AppCompatActivity() {
         // helper for dp to px inside onCreate
         fun dpToPx(v: Float): Int = (v * resources.displayMetrics.density).toInt()
 
-        // Temperature card: custom layout with red value in front of label and compact thermometer
+        // Temperature card: label first, then red temperature value, then compact thermometer bar
         val cardTemp = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(24, 18, 24, 18)
@@ -164,15 +163,9 @@ class MeterActivity : AppCompatActivity() {
             elevation = 6f
         }
 
-        // Header row: red temperature value BEFORE label text
+        // Header row: label first, temperature value after
         val tempHeader = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-        }
-
-        tvTemp = TextView(this).apply {
-            text = "--.-°C"
-            textSize = 18f
-            setTextColor(Color.parseColor("#FCA5A5")) // light red value
         }
 
         val tvTempLabel = TextView(this).apply {
@@ -180,14 +173,20 @@ class MeterActivity : AppCompatActivity() {
             textSize = 16f
             setTypeface(typeface, Typeface.BOLD)
             setTextColor(Color.WHITE)
+        }
+
+        tvTemp = TextView(this).apply {
+            text = "--.-°C"
+            textSize = 18f
+            setTextColor(Color.parseColor("#FCA5A5")) // light red value
             setPadding(16, 0, 0, 0)
         }
 
-        tempHeader.addView(tvTemp)
         tempHeader.addView(tvTempLabel)
+        tempHeader.addView(tvTemp)
         cardTemp.addView(tempHeader)
 
-        // Compact thermometer bar (roughly 1/4 of typical card height)
+        // Compact thermometer bar (about 1/4 of typical card height)
         thermometerView = ThermometerView(this).apply {
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
@@ -206,7 +205,6 @@ class MeterActivity : AppCompatActivity() {
         tvCurr = pairCurr.second
         tvName = pairName.second
 
-        // Root layout: gauge, then Voltage, Current, Temperature, Device
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(12, 12, 12, 12)
@@ -476,7 +474,6 @@ runOnUiThread {
             tvVolt.text = String.format("%.3f V", voltage)
             tvCurr.text = String.format("%.3f A", current)
             tvTemp.text = tempText
-            // Drive the thermometer animation when we have a valid reading
             tempCValue?.let { thermometerView.setTemperature(it.toFloat()) }
         }
     }
@@ -719,10 +716,8 @@ class ThermometerView(context: Context) : View(context) {
     private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.WHITE
         textAlign = Paint.Align.CENTER
-        textSize = dp(12f)
+        textSize = 12f * resources.displayMetrics.density
     }
-
-    private fun dp(v: Float) = v * resources.displayMetrics.density
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
@@ -732,8 +727,8 @@ class ThermometerView(context: Context) : View(context) {
         if (w <= 0 || h <= 0) return
 
         val cx = w / 2f
-        val bulbRadius = min(w, h) / 6f
-        val tubeTop = paddingTop + dp(4f)
+        val bulbRadius = kotlin.math.min(w, h) / 6f
+        val tubeTop = paddingTop + 4f * resources.displayMetrics.density
         val tubeBottom = h - paddingBottom - bulbRadius * 1.3f
 
         // Tube width wide enough to show level nicely
