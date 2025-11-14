@@ -520,7 +520,7 @@ class MeterActivity : AppCompatActivity() {
         }
         
         private val scalePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.parseColor("#6B7280")
+            color = Color.parseColor("#FFFFFF")
             style = Paint.Style.STROKE
             strokeWidth = 2f
         }
@@ -538,7 +538,7 @@ class MeterActivity : AppCompatActivity() {
             val centerX = width / 2
             
             // تنظیمات جدید برای نمایش بهتر
-            val tubeWidth = width * 0.3f
+            val tubeWidth = width * 0.25f
             val tubeLeft = centerX - tubeWidth / 2
             val tubeRight = centerX + tubeWidth / 2
             val tubeTop = height * 0.1f  // شروع از بالاتر
@@ -552,7 +552,7 @@ class MeterActivity : AppCompatActivity() {
             )
             
             // Draw bulb at bottom - با فاصله از پایین
-            val bulbRadius = tubeWidth * 1.2f
+            val bulbRadius = tubeWidth * 1f
             val bulbCenterY = height - bulbRadius * 0.6f // موقعیت bulb از پایین
             
             canvas.drawCircle(centerX, bulbCenterY, bulbRadius, bulbPaint)
