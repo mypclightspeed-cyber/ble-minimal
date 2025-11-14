@@ -538,11 +538,11 @@ class MeterActivity : AppCompatActivity() {
             val centerX = width / 2
             
             // تنظیمات جدید برای نمایش بهتر
-            val tubeWidth = width * 0.25f
+            val tubeWidth = width * 0.2f
             val tubeLeft = centerX - tubeWidth / 2
             val tubeRight = centerX + tubeWidth / 2
             val tubeTop = height * 0.05f  // شروع از بالاتر
-            val tubeBottom = height * 0.6f // پایان بالاتر برای فضای بیشتر برای bulb
+            val tubeBottom = height * 0.75f // پایان بالاتر برای فضای بیشتر برای bulb
             val tubeHeight = tubeBottom - tubeTop
             
             // Draw outer case
@@ -552,7 +552,7 @@ class MeterActivity : AppCompatActivity() {
             )
             
             // Draw bulb at bottom - با فاصله از پایین
-            val bulbRadius = tubeWidth * 1f
+            val bulbRadius = tubeWidth * 0.9f
             val bulbCenterY = height - bulbRadius * 0.6f // موقعیت bulb از پایین
             
             canvas.drawCircle(centerX, bulbCenterY, bulbRadius, bulbPaint)
