@@ -14,6 +14,7 @@ import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
 import android.view.View
+import android.view.ViewGroup
 import android.widget.*
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
@@ -53,6 +54,7 @@ class MeterActivity : AppCompatActivity() {
     private lateinit var tvCurr: TextView
     private lateinit var tvTemp: TextView
     private lateinit var tvName: TextView
+    private lateinit var thermometerView: ThermometerView
 
     private lateinit var adapterLv: ArrayAdapter<String>
     private val rows = mutableListOf<String>()                     // "MAC  Name"
@@ -117,7 +119,7 @@ class MeterActivity : AppCompatActivity() {
             setPercent(0)
         }
 
-        fun makeCard(title: String, colorHex: String): Pair<LinearLayout, Pair<TextView, TextView>> {
+        fun makeCard(title: String, colorHex: String): Pair<LinearLayout, TextView> {
             val card = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
                 setPadding(24, 18, 24, 18)
@@ -141,7 +143,7 @@ class MeterActivity : AppCompatActivity() {
                 setTextColor(Color.WHITE)
             }
             card.addView(titleTv); card.addView(valueTv)
-            return card to (titleTv to valueTv)
+            return card to valueTv
         }
 
         // Create thermometer card with custom layout
@@ -187,20 +189,20 @@ class MeterActivity : AppCompatActivity() {
             card.addView(leftLayout)
             card.addView(thermometer)
             
-            return card to (titleTv to thermometer)
+            return card to (valueTv to thermometer)
         }
 
         // ترتیب جدید: اول ولتاژ، بعد جریان، بعد دما، در آخر device
-        val (cardVolt, pairVolt) = makeCard("Voltage (V)", "#10B981")
-        val (cardCurr, pairCurr) = makeCard("Current (A)", "#F59E0B")
-        val (cardTemp, pairTemp) = makeThermometerCard()
-        val (cardName, pairName) = makeCard("Device", "#3B82F6")
+        val (cardVolt, voltValue) = makeCard("Voltage (V)", "#10B981")
+        val (cardCurr, currValue) = makeCard("Current (A)", "#F59E0B")
+        val (cardTemp, tempPair) = makeThermometerCard()
+        val (cardName, nameValue) = makeCard("Device", "#3B82F6")
         
-        tvVolt = pairVolt.second
-        tvCurr = pairCurr.second
-        tvTemp = pairTemp.first.second  // TextView for temperature value
-        val thermometerView = pairTemp.second // ThermometerView
-        tvName = pairName.second
+        tvVolt = voltValue
+        tvCurr = currValue
+        tvTemp = tempPair.first
+        thermometerView = tempPair.second
+        tvName = nameValue
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -333,6 +335,7 @@ class MeterActivity : AppCompatActivity() {
         tvCurr.text = "-"
         tvTemp.text = "-"
         tvName.text = ""
+        thermometerView.setTemperature(0.0)
 
         scanning = true
         toast("Scanning for ${SCAN_MS/1000}s…")
@@ -471,23 +474,8 @@ class MeterActivity : AppCompatActivity() {
             tvVolt.text = String.format("%.3f", voltage)
             tvCurr.text = String.format("%.3f", current)
             tvTemp.text = tempText
-            
-            // Find and update thermometer view
-            val rootView = findViewById<LinearLayout>(R.id.content)
-            val thermometerView = findThermometerView(rootView)
-            thermometerView?.setTemperature(tempValue)
+            thermometerView.setTemperature(tempValue)
         }
-    }
-    
-    private fun findThermometerView(view: View): ThermometerView? {
-        if (view is ThermometerView) return view
-        if (view is ViewGroup) {
-            for (i in 0 until view.childCount) {
-                val result = findThermometerView(view.getChildAt(i))
-                if (result != null) return result
-            }
-        }
-        return null
     }
 
     // --- helpers / utils ---
