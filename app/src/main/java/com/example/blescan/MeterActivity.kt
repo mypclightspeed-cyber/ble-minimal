@@ -541,8 +541,8 @@ class MeterActivity : AppCompatActivity() {
             val tubeWidth = width * 0.25f
             val tubeLeft = centerX - tubeWidth / 2
             val tubeRight = centerX + tubeWidth / 2
-            val tubeTop = height * 0.1f  // شروع از بالاتر
-            val tubeBottom = height * 0.7f // پایان بالاتر برای فضای بیشتر برای bulb
+            val tubeTop = height * 0.05f  // شروع از بالاتر
+            val tubeBottom = height * 0.6f // پایان بالاتر برای فضای بیشتر برای bulb
             val tubeHeight = tubeBottom - tubeTop
             
             // Draw outer case
