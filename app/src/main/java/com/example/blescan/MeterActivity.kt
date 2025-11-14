@@ -586,7 +586,7 @@ class MeterActivity : AppCompatActivity() {
             
             // Draw scale marks
             val scaleCount = 4
-            for (i in  until scaleCount) {
+            for (i in 1 until scaleCount) {
                 val markY = tubeTop + (tubeHeight * i / (scaleCount - 1))
                 canvas.drawLine(
                     tubeRight + 5, markY,
