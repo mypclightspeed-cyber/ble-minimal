@@ -34,6 +34,18 @@ class MeterActivity : AppCompatActivity() {
     private val AMITIS_READ_CH = uuid("0000ff01")   // notify
     private val AMITIS_WRITE_CH = uuid("0000ff02")  // write
     private val CMD_BASIC_INFO = hex("DD A5 03 00 FF FD 77")
+    private val CMD_CELL_VOLTAGES = hex("DD A5 04 00 FF FC 77")
+    private val CMD_DEVICE_NAME = hex("DD A5 05 00 FF FB 77")
+
+    // FET Control Commands
+    private val CMD_ENTER_FACTORY_MODE = hex("DD 5A 00 02 56 78 01 F3 77")
+    private val CMD_EXIT_FACTORY_MODE = hex("DD 5A 01 02 00 00 02 1F 77")
+    private val CMD_ENABLE_CHARGE_FET = hex("DD 5A E1 02 00 00 02 1B 77")    // Clear bit 0
+    private val CMD_DISABLE_CHARGE_FET = hex("DD 5A E1 02 00 01 02 1A 77")   // Set bit 0
+    private val CMD_ENABLE_DISCHARGE_FET = hex("DD 5A E1 02 00 00 02 1B 77") // Clear bit 1
+    private val CMD_DISABLE_DISCHARGE_FET = hex("DD 5A E1 02 00 02 02 19 77") // Set bit 1
+    private val CMD_ENABLE_BOTH_FETS = hex("DD 5A E1 02 00 00 02 1B 77")     // Clear both bits
+    private val CMD_DISABLE_BOTH_FETS = hex("DD 5A E1 02 00 03 02 18 77")    // Set both bits
 
     private fun cmdReadRegister(reg: Int): ByteArray {
         val r = reg and 0xFF
@@ -54,7 +66,16 @@ class MeterActivity : AppCompatActivity() {
     private lateinit var tvCurr: TextView
     private lateinit var tvTemp: TextView
     private lateinit var tvName: TextView
+    private lateinit var tvFetStatus: TextView
     private lateinit var thermometerView: ThermometerView
+
+    // FET Control Buttons
+    private lateinit var btnEnableCharge: Button
+    private lateinit var btnDisableCharge: Button
+    private lateinit var btnEnableDischarge: Button
+    private lateinit var btnDisableDischarge: Button
+    private lateinit var btnEnableBoth: Button
+    private lateinit var btnDisableBoth: Button
 
     private lateinit var adapterLv: ArrayAdapter<String>
     private val rows = mutableListOf<String>()                     // "MAC  Name"
@@ -65,6 +86,7 @@ class MeterActivity : AppCompatActivity() {
     private var bluetoothAdapter: BluetoothAdapter? = null
     private var scanner: BluetoothLeScanner? = null
     private var scanning = false
+    private var connected = false
     private val handler = Handler(Looper.getMainLooper())
 
     private var gatt: BluetoothGatt? = null
@@ -194,18 +216,169 @@ class MeterActivity : AppCompatActivity() {
             return card to (valueTv to thermometer)
         }
 
+        // Create FET Status card
+        fun makeFetStatusCard(): Pair<LinearLayout, TextView> {
+            val card = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(24, 18, 24, 18)
+                setBackgroundColor(Color.parseColor("#8B5CF6")) // Purple color for FET status
+                val lp = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+                )
+                lp.setMargins(16, 10, 16, 10)
+                layoutParams = lp
+                elevation = 6f
+            }
+            val titleTv = TextView(this).apply {
+                text = "FET Status"
+                textSize = 16f
+                setTypeface(typeface, Typeface.BOLD)
+                setTextColor(Color.WHITE)
+            }
+            val valueTv = TextView(this).apply {
+                text = "-"
+                textSize = 20f
+                setTextColor(Color.WHITE)
+            }
+            card.addView(titleTv)
+            card.addView(valueTv)
+            return card to valueTv
+        }
+
+        // Create FET Control Panel
+        fun makeFetControlPanel(): LinearLayout {
+            val panel = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(16, 16, 16, 16)
+                setBackgroundColor(Color.parseColor("#4B5563"))
+                val lp = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+                )
+                lp.setMargins(16, 10, 16, 10)
+                layoutParams = lp
+                elevation = 6f
+            }
+
+            val title = TextView(this).apply {
+                text = "FET Control"
+                textSize = 18f
+                setTypeface(typeface, Typeface.BOLD)
+                setTextColor(Color.WHITE)
+                setPadding(0, 0, 0, 16)
+            }
+            panel.addView(title)
+
+            // Create button row layouts
+            val row1 = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+                )
+                weightSum = 2f
+            }
+
+            val row2 = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+                )
+                weightSum = 2f
+            }
+
+            val row3 = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+                )
+                weightSum = 2f
+            }
+
+            // Create buttons
+            btnEnableCharge = Button(this).apply {
+                text = "🔋 Enable Charge"
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+                    setMargins(4, 4, 4, 4)
+                }
+                setBackgroundColor(Color.parseColor("#10B981"))
+                setTextColor(Color.WHITE)
+            }
+
+            btnDisableCharge = Button(this).apply {
+                text = "⛔ Disable Charge"
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+                    setMargins(4, 4, 4, 4)
+                }
+                setBackgroundColor(Color.parseColor("#EF4444"))
+                setTextColor(Color.WHITE)
+            }
+
+            btnEnableDischarge = Button(this).apply {
+                text = "⚡ Enable Discharge"
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+                    setMargins(4, 4, 4, 4)
+                }
+                setBackgroundColor(Color.parseColor("#10B981"))
+                setTextColor(Color.WHITE)
+            }
+
+            btnDisableDischarge = Button(this).apply {
+                text = "⛔ Disable Discharge"
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+                    setMargins(4, 4, 4, 4)
+                }
+                setBackgroundColor(Color.parseColor("#EF4444"))
+                setTextColor(Color.WHITE)
+            }
+
+            btnEnableBoth = Button(this).apply {
+                text = "✅ Enable Both"
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+                    setMargins(4, 4, 4, 4)
+                }
+                setBackgroundColor(Color.parseColor("#10B981"))
+                setTextColor(Color.WHITE)
+            }
+
+            btnDisableBoth = Button(this).apply {
+                text = "❌ Disable Both"
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+                    setMargins(4, 4, 4, 4)
+                }
+                setBackgroundColor(Color.parseColor("#EF4444"))
+                setTextColor(Color.WHITE)
+            }
+
+            // Add buttons to rows
+            row1.addView(btnEnableCharge)
+            row1.addView(btnDisableCharge)
+            
+            row2.addView(btnEnableDischarge)
+            row2.addView(btnDisableDischarge)
+            
+            row3.addView(btnEnableBoth)
+            row3.addView(btnDisableBoth)
+
+            panel.addView(row1)
+            panel.addView(row2)
+            panel.addView(row3)
+
+            return panel
+        }
+
         // ترتیب جدید: اول ولتاژ، بعد جریان، بعد دما، در آخر device
         val (cardName, nameValue) = makeCard("Device", "#3B82F6")
         val (cardVolt, voltValue) = makeCard("Voltage (V)", "#10B981")
         val (cardCurr, currValue) = makeCard("Current (A)", "#DC143C")
         val (cardTemp, tempPair) = makeThermometerCard()
-        
+        val (cardFet, fetValue) = makeFetStatusCard()
+        val fetControlPanel = makeFetControlPanel()
         
         tvVolt = voltValue
         tvCurr = currValue
         tvTemp = tempPair.first
         thermometerView = tempPair.second
         tvName = nameValue
+        tvFetStatus = fetValue
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -220,6 +393,8 @@ class MeterActivity : AppCompatActivity() {
             addView(cardVolt)
             addView(cardCurr)
             addView(cardTemp)
+            addView(cardFet)
+            addView(fetControlPanel)
         }
         setContentView(root)
 
@@ -234,6 +409,14 @@ class MeterActivity : AppCompatActivity() {
             if (checkAndRequestPermissions()) startScan()
         }
 
+        // Set up FET control button listeners
+        btnEnableCharge.setOnClickListener { sendFetCommand(CMD_ENABLE_CHARGE_FET, "Enable Charge FET") }
+        btnDisableCharge.setOnClickListener { sendFetCommand(CMD_DISABLE_CHARGE_FET, "Disable Charge FET") }
+        btnEnableDischarge.setOnClickListener { sendFetCommand(CMD_ENABLE_DISCHARGE_FET, "Enable Discharge FET") }
+        btnDisableDischarge.setOnClickListener { sendFetCommand(CMD_DISABLE_DISCHARGE_FET, "Disable Discharge FET") }
+        btnEnableBoth.setOnClickListener { sendFetCommand(CMD_ENABLE_BOTH_FETS, "Enable Both FETs") }
+        btnDisableBoth.setOnClickListener { sendFetCommand(CMD_DISABLE_BOTH_FETS, "Disable Both FETs") }
+
         list.setOnItemClickListener { _, _, pos, _ ->
             val entry = adapterLv.getItem(pos) ?: return@setOnItemClickListener
             val mac = entry.substringBefore("  ")
@@ -242,6 +425,67 @@ class MeterActivity : AppCompatActivity() {
             tvName.text = advertisedName[mac] ?: "Unknown"
             connectTo(dev)
         }
+
+        // Initially disable FET controls until connected
+        updateFetControlsEnabled(false)
+    }
+
+    private fun sendFetCommand(command: ByteArray, description: String) {
+        if (!connected) {
+            toast("Not connected to BMS")
+            return
+        }
+
+        // First enter factory mode
+        sendCommandWithDelay(CMD_ENTER_FACTORY_MODE, 500) {
+            // Then send the actual FET command
+            sendCommandWithDelay(command, 500) {
+                // Then exit factory mode
+                sendCommandWithDelay(CMD_EXIT_FACTORY_MODE, 500) {
+                    toast("$description command sent")
+                    // Refresh basic info to update FET status
+                    handler.postDelayed({
+                        chWrite?.let { w ->
+                            gatt?.let { g ->
+                                w.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
+                                w.value = CMD_BASIC_INFO
+                                g.writeCharacteristic(w)
+                            }
+                        }
+                    }, 1000)
+                }
+            }
+        }
+    }
+
+    private fun sendCommandWithDelay(command: ByteArray, delayMs: Long, callback: (() -> Unit)? = null) {
+        chWrite?.let { w ->
+            gatt?.let { g ->
+                w.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
+                w.value = command
+                g.writeCharacteristic(w)
+            }
+        }
+        callback?.let {
+            handler.postDelayed(it, delayMs)
+        }
+    }
+
+    private fun updateFetControlsEnabled(enabled: Boolean) {
+        btnEnableCharge.isEnabled = enabled
+        btnDisableCharge.isEnabled = enabled
+        btnEnableDischarge.isEnabled = enabled
+        btnDisableDischarge.isEnabled = enabled
+        btnEnableBoth.isEnabled = enabled
+        btnDisableBoth.isEnabled = enabled
+        
+        val alpha = if (enabled) 1.0f else 0.5f
+        btnEnableCharge.alpha = alpha
+        btnDisableCharge.alpha = alpha
+        btnEnableDischarge.alpha = alpha
+        btnDisableDischarge.alpha = alpha
+        btnEnableBoth.alpha = alpha
+        btnDisableBoth.alpha = alpha
     }
 
     override fun onResume() { super.onResume(); updateWarningBanner() }
@@ -337,8 +581,10 @@ class MeterActivity : AppCompatActivity() {
         tvVolt.text = "-"
         tvCurr.text = "-"
         tvTemp.text = "-"
-        tvName.text = ""
+        tvName.text = "-"
+        tvFetStatus.text = "-"
         thermometerView.setTemperature(0.0)
+        updateFetControlsEnabled(false)
 
         scanning = true
         toast("Scanning for ${SCAN_MS/1000}s…")
@@ -370,13 +616,22 @@ class MeterActivity : AppCompatActivity() {
 
     private val gattCb = object : BluetoothGattCallback() {
         override fun onConnectionStateChange(g: BluetoothGatt, status: Int, newState: Int) {
-            runOnUiThread { toast("State: ${stateName(newState)} (status=$status)") }
+            runOnUiThread { 
+                toast("State: ${stateName(newState)} (status=$status)") 
+                connected = (newState == BluetoothProfile.STATE_CONNECTED)
+                updateFetControlsEnabled(connected)
+            }
             if (newState == BluetoothProfile.STATE_CONNECTED) {
                 g.discoverServices()
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
                 handler.removeCallbacks(pollTask)
                 chNotify = null; chWrite = null; rxBuffer.clear()
                 g.close()
+                runOnUiThread {
+                    connected = false
+                    updateFetControlsEnabled(false)
+                    tvFetStatus.text = "Disconnected"
+                }
             }
         }
 
@@ -445,7 +700,7 @@ class MeterActivity : AppCompatActivity() {
         }
     }
 
-    // payload: voltage(2) current(2s) ... soc (byte) at offset 19
+    // payload: voltage(2) current(2s) ... soc (byte) at offset 19, FET status at offset 0x13
     private fun handleBasicInfo(p: ByteArray) {
         if (p.size < 24) return
         val vRaw = ((p[0].toInt() and 0xFF) shl 8) or (p[1].toInt() and 0xFF)
@@ -455,6 +710,11 @@ class MeterActivity : AppCompatActivity() {
         val voltage = vRaw / 100.0
         val current = iRaw / 100.0
         val soc = p[19].toInt() and 0xFF
+        
+        // Extract FET status from byte 0x13
+        val fetStatusByte = p[0x13].toInt() and 0xFF
+        val chargeFetEnabled = (fetStatusByte and 0x01) != 0
+        val dischargeFetEnabled = (fetStatusByte and 0x02) != 0
 
         // Temperature extraction per JBD (0x03) with null fallback
         val dataStart = 4
@@ -478,6 +738,29 @@ class MeterActivity : AppCompatActivity() {
             tvCurr.text = String.format("%.3f", current)
             tvTemp.text = tempText
             thermometerView.setTemperature(tempValue)
+            
+            // Update FET status display
+            updateFetStatusDisplay(chargeFetEnabled, dischargeFetEnabled)
+        }
+    }
+
+    private fun updateFetStatusDisplay(chargeFet: Boolean, dischargeFet: Boolean) {
+        val chargeStatus = if (chargeFet) "🔋 CHG ON" else "⛔ CHG OFF"
+        val dischargeStatus = if (dischargeFet) "⚡ DSG ON" else "⛔ DSG OFF"
+        
+        tvFetStatus.text = "$chargeStatus | $dischargeStatus"
+        
+        // Color coding
+        when {
+            chargeFet && dischargeFet -> {
+                tvFetStatus.setTextColor(Color.parseColor("#10B981")) // Green - normal
+            }
+            !chargeFet && !dischargeFet -> {
+                tvFetStatus.setTextColor(Color.parseColor("#EF4444")) // Red - protection active
+            }
+            else -> {
+                tvFetStatus.setTextColor(Color.parseColor("#F59E0B")) // Yellow - mixed state
+            }
         }
     }
 
@@ -531,271 +814,4 @@ class MeterActivity : AppCompatActivity() {
         }
 
         override fun onDraw(canvas: Canvas) {
-            super.onDraw(canvas)
-            
-            val width = width.toFloat()
-            val height = height.toFloat()
-            val centerX = width / 2
-            
-            // تنظیمات جدید برای نمایش بهتر
-            val tubeWidth = width * 0.2f
-            val tubeLeft = centerX - tubeWidth / 2
-            val tubeRight = centerX + tubeWidth / 2
-            val tubeTop = height * 0.1f  // شروع از بالاتر
-            val tubeBottom = height * 0.75f // پایان بالاتر برای فضای بیشتر برای bulb
-            val tubeHeight = tubeBottom - tubeTop
-            
-            // Draw outer case
-            canvas.drawRoundRect(
-                tubeLeft, tubeTop, tubeRight, tubeBottom, 
-                tubeWidth / 3, tubeWidth / 3, casePaint
-            )
-            
-            // Draw bulb at bottom - با فاصله از پایین
-            val bulbRadius = tubeWidth * 1f
-            val bulbCenterY = height - bulbRadius * 1f // موقعیت bulb از پایین
-            
-            canvas.drawCircle(centerX, bulbCenterY, bulbRadius, bulbPaint)
-            
-            // Calculate mercury level based on temperature (0°C to 90°C range)
-            val minTemp = 0
-            val maxTemp = 90.0
-            val normalizedTemp = (temperature - minTemp) / (maxTemp - minTemp)
-            val mercuryLevel = tubeBottom - (tubeHeight * normalizedTemp.toFloat().coerceIn(0f, 1f))
-            
-            // Update mercury color based on temperature
-            mercuryPaint.color = when {
-                temperature < 15 -> Color.parseColor("#25AFFF") // Light blue for cold
-                temperature > 45 -> Color.parseColor("#DC2626") // Bright red for hot
-                else -> Color.parseColor("#25AFFF") // Light blue
-            }
-            
-            bulbPaint.color = mercuryPaint.color
-            
-            // Draw mercury column - فقط تا بالای bulb
-            val mercuryWidth = tubeWidth * 0.5f
-            val mercuryLeft = centerX - mercuryWidth / 2
-            val mercuryRight = centerX + mercuryWidth / 2
-            
-            val mercuryBottom = tubeBottom.coerceAtMost(bulbCenterY - bulbRadius * 0.5f)
-            
-            canvas.drawRoundRect(
-                mercuryLeft, mercuryLevel, mercuryRight, mercuryBottom, 
-                mercuryWidth / 2, mercuryWidth / 2, mercuryPaint
-            )
-            
-            // Draw scale marks
-            val scaleCount = 5
-            for (i in 1 until scaleCount) {
-                val markY = tubeTop + (tubeHeight * i / (scaleCount - 1))
-                canvas.drawLine(
-                    tubeRight + 5, markY,
-                    tubeRight + 15, markY, scalePaint
-                )
-            }
-            
-            // Draw connecting line between tube and bulb
-            val connectorWidth = tubeWidth * 0.4f
-            val connectorLeft = centerX - connectorWidth / 2
-            val connectorRight = centerX + connectorWidth / 2
-            canvas.drawRect(
-                connectorLeft, tubeBottom,
-                connectorRight, bulbCenterY - bulbRadius * 0.8f,
-                casePaint
-            )
-        }
-    }
-
-    // ===== Gauge Style 3 (Modern half-circle) =====
-    class ModernHalfGauge(context: Context) : View(context) {
-        private var pct = 0
-        private var label = "SOC"
-
-        // radius shrink factor (B1)
-        private val radiusScale = 0.75f
-
-        private val track = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.parseColor("#E5E7EB") // gray-200
-            style = Paint.Style.STROKE
-            strokeWidth = 30f
-            strokeCap = Paint.Cap.ROUND
-        }
-        private val progress = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            style = Paint.Style.STROKE
-            strokeWidth = 30f
-            strokeCap = Paint.Cap.ROUND
-        }
-        private val tick = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.parseColor("#9CA3AF")
-            style = Paint.Style.STROKE
-            strokeWidth = 4f
-        }
-        private val tickBold = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.parseColor("#6B7280")
-            style = Paint.Style.STROKE
-            strokeWidth = 6f
-        }
-        private val pointer = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.parseColor("#EF4444") // bright red
-            style = Paint.Style.FILL
-        }
-        // Glowing red shadow paint for pointer
-        private val pointerGlow = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.parseColor("#80EF4444") // semi-transparent red
-            style = Paint.Style.FILL
-            setShadowLayer(25f, 0f, 0f, Color.parseColor("#FFEF4444")) // Strong red glow
-        }
-        // SOC text — bigger and blue, drawn upper-middle with extra gap
-        private val socPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.parseColor("#2563EB") // blue
-            textAlign = Paint.Align.LEFT
-            textSize = 54f
-            typeface = Typeface.create(Typeface.DEFAULT_BOLD, Typeface.BOLD)
-        }
-        private val pctPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.parseColor("#2563EB") // blue
-            textAlign = Paint.Align.LEFT
-            textSize = 54f
-            typeface = Typeface.create(Typeface.DEFAULT_BOLD, Typeface.BOLD)
-        }
-        // Arc labels — large
-        private val textLabel = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.parseColor("#374151")
-            textAlign = Paint.Align.CENTER
-            textSize = 32f
-        }
-
-        fun setPercent(v: Int) { pct = v.coerceIn(0, 100); invalidate() }
-        fun setLabel(s: String) { label = s; invalidate() }
-
-        override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
-            val w = MeasureSpec.getSize(widthMeasureSpec)
-            val h = max((w * 0.55f).roundToInt(), 260)
-            setMeasuredDimension(w, h)
-        }
-
-        override fun onDraw(c: Canvas) {
-            super.onDraw(c)
-            val pad = 36f
-            val w = width.toFloat()
-            val h = height.toFloat()
-            val baseSize = min(w - pad * 2, h * 2.0f - pad * 2)
-            val size = baseSize * radiusScale
-            val rect = RectF(
-                (w - size) / 2f, pad + (baseSize - size) / 2f,
-                (w + size) / 2f, pad + (baseSize - size) / 2f + size
-            )
-
-            // A1: sweep 180°, start at left horizon (180°), clockwise
-            val startAngle = 180f
-            val sweepTotal = 180f
-
-            // track
-            c.drawArc(rect, startAngle, sweepTotal, false, track)
-
-            // ticks (bold at 0/50/100, thin each 10%)
-            drawTicks(c, rect, startAngle, sweepTotal)
-
-            // progress color based on SOC - using pure solid colors
-            val levelColor = when {
-                pct < 15 -> Color.RED // Pure red
-                pct < 30 -> Color.YELLOW // Pure yellow
-                pct <= 80 -> Color.GREEN // Pure green
-                else -> Color.BLUE // Pure blue
-            }
-            
-            // Use solid color without gradient
-            progress.color = levelColor
-            progress.shader = null
-
-            val sweep = sweepTotal * (pct / 100f)
-            c.drawArc(rect, startAngle, sweep, false, progress)
-
-            // Enable shadow layer for glowing red effect
-            setLayerType(LAYER_TYPE_SOFTWARE, pointerGlow)
-            
-            // pointer with glowing red shadow
-            drawPointer(c, rect, startAngle + sweep)
-
-            // Disable shadow layer after drawing pointer
-            setLayerType(LAYER_TYPE_HARDWARE, null)
-
-            // labels at 0/25/50/75/100
-            drawLabels(c, rect, startAngle, sweepTotal)
-
-            // SOC text in upper-middle: draw "SOC" and "<pct>%" with extra gap, centered
-            val gap = 44f // extra spacing
-            val socText = label
-            val pctText = "$pct%"
-            val socW = socPaint.measureText(socText)
-            val pctW = pctPaint.measureText(pctText)
-            val totalW = socW + gap + pctW
-            val y = rect.centerY() - rect.height()*0.18f  // upper placement
-            val startX = (w - totalW) / 2f
-            val fm = socPaint.fontMetrics
-            val baseline = y - (fm.ascent + fm.descent)/2f
-            c.drawText(socText, startX, baseline, socPaint)
-            c.drawText(pctText, startX + socW + gap, baseline, pctPaint)
-        }
-
-        private fun drawTicks(c: Canvas, rect: RectF, start: Float, sweep: Float) {
-            val cx = rect.centerX()
-            val cy = rect.centerY()
-            val rOuter = rect.width() / 2f
-            val rInnerThin = rOuter - 18f
-            val rInnerBold = rOuter - 26f
-
-            for (i in 0..10) {
-                val ang = Math.toRadians((start + sweep * (i / 10f)).toDouble())
-                val inner = if (i % 5 == 0) rInnerBold else rInnerThin
-                val p = if (i % 5 == 0) tickBold else tick
-                val sx = (cx + inner * cos(ang)).toFloat()
-                val sy = (cy + inner * sin(ang)).toFloat()
-                val ex = (cx + rOuter * cos(ang)).toFloat()
-                val ey = (cy + rOuter * sin(ang)).toFloat()
-                c.drawLine(sx, sy, ex, ey, p)
-            }
-        }
-
-        private fun drawLabels(c: Canvas, rect: RectF, start: Float, sweep: Float) {
-            val cx = rect.centerX()
-            val cy = rect.centerY()
-            val r = rect.width() / 2f + 24f
-            val marks = listOf(0, 25, 50, 75, 100)
-            for (m in marks) {
-                val a = Math.toRadians((start + sweep * (m / 100f)).toDouble())
-                val x = (cx + r * cos(a)).toFloat()
-                val y = (cy + r * sin(a)).toFloat()
-                c.drawText("${m}%", x, y, textLabel)
-            }
-        }
-
-        private fun drawPointer(c: Canvas, rect: RectF, angleDeg: Float) {
-            val cx = rect.centerX()
-            val cy = rect.centerY()
-            val r = rect.width() / 2.25f
-            val a = Math.toRadians(angleDeg.toDouble())
-            val tipX = (cx + r * cos(a)).toFloat()
-            val tipY = (cy + r * sin(a)).toFloat()
-            val baseW = 16f
-            val back = 42f
-            val perp = a + Math.PI / 2
-            val b1x = (cx - back * cos(a) + baseW * cos(perp)).toFloat()
-            val b1y = (cy - back * sin(a) + baseW * sin(perp)).toFloat()
-            val b2x = (cx - back * cos(a) - baseW * cos(perp)).toFloat()
-            val b2y = (cy - back * sin(a) - baseW * sin(perp)).toFloat()
-            val path = Path()
-            path.moveTo(tipX, tipY)
-            path.lineTo(b1x, b1y)
-            path.lineTo(b2x, b2y)
-            path.close()
-            
-            // Draw glowing red shadow (same path, but the shadow layer creates the glow)
-            c.drawPath(path, pointerGlow)
-            
-            // Then draw the bright red pointer on top
-            c.drawPath(path, pointer)
-            c.drawCircle(cx, cy, 12f, pointer)
-        }
-    }
-}
+            super.on
