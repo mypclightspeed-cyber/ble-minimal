@@ -552,8 +552,8 @@ class MeterActivity : AppCompatActivity() {
             )
             
             // Draw bulb at bottom - با فاصله از پایین
-            val bulbRadius = tubeWidth * 0.9f
-            val bulbCenterY = height - bulbRadius * 0.8f // موقعیت bulb از پایین
+            val bulbRadius = tubeWidth * 1f
+            val bulbCenterY = height - bulbRadius * 0.9f // موقعیت bulb از پایین
             
             canvas.drawCircle(centerX, bulbCenterY, bulbRadius, bulbPaint)
             
@@ -585,8 +585,8 @@ class MeterActivity : AppCompatActivity() {
             )
             
             // Draw scale marks
-            val scaleCount = 6
-            for (i in 0 until scaleCount) {
+            val scaleCount = 4
+            for (i in  until scaleCount) {
                 val markY = tubeTop + (tubeHeight * i / (scaleCount - 1))
                 canvas.drawLine(
                     tubeRight + 5, markY,
