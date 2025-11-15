@@ -426,7 +426,7 @@ class MeterActivity : AppCompatActivity() {
         thermometerView.setTemperature(0.0)
 
         scanning = true
-        toast("Scanning for ${SCAN_MS/1000}s…")
+        toast("Scanning for ${SCAN_MS/1000}s...")
         
         handler.postDelayed({
             stopScan()
@@ -464,7 +464,7 @@ class MeterActivity : AppCompatActivity() {
         // قطع اتصال قبلی قبل از اتصال به دستگاه جدید
         disconnectFromCurrentDevice()
         
-        toast("Connecting to ${device.address}…")
+        toast("Connecting to ${device.address}...")
         
         // Reset UI values when connecting to new device
         gauge.setPercent(0)
