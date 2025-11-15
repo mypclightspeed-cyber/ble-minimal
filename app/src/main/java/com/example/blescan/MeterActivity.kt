@@ -105,6 +105,11 @@ class MeterActivity : AppCompatActivity() {
             setTextColor(Color.WHITE)
             setBackgroundColor(Color.parseColor("#DC2626"))
             visibility = View.GONE
+            isClickable = true // اضافه کردن قابلیت کلیک
+            setOnClickListener {
+                // با کلیک روی بنر، تنظیمات مربوطه باز شود
+                openRelevantSettings()
+            }
         }
 
         btnScan = Button(this).apply { text = "Scan Amitis BMS" }
@@ -305,13 +310,50 @@ class MeterActivity : AppCompatActivity() {
         return true
     }
 
+    // تابع جدید برای باز کردن تنظیمات مربوطه با کلیک روی بنر
+    private fun openRelevantSettings() {
+        val btOn = bluetoothAdapter?.isEnabled == true
+        val locOn = isLocationEnabled(this)
+        
+        when {
+            !btOn && !locOn -> {
+                AlertDialog.Builder(this)
+                    .setTitle("Enable Bluetooth and Location")
+                    .setMessage("Both Bluetooth and Location are required for BLE scanning. Which one do you want to enable first?")
+                    .setPositiveButton("Bluetooth") { _, _ ->
+                        startActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS))
+                    }
+                    .setNegativeButton("Location") { _, _ ->
+                        startActivity(Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS))
+                    }
+                    .setNeutralButton("Cancel", null)
+                    .show()
+            }
+            !btOn -> {
+                startActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS))
+            }
+            !locOn -> {
+                startActivity(Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS))
+            }
+        }
+    }
+
     private fun updateWarningBanner() {
         val btOn = bluetoothAdapter?.isEnabled == true
         val locOn = isLocationEnabled(this)
         when {
-            !btOn && !locOn -> { bannerWarn.text = "Bluetooth and Location are OFF"; bannerWarn.visibility = View.VISIBLE }
-            !btOn -> { bannerWarn.text = "Bluetooth is OFF"; bannerWarn.visibility = View.VISIBLE }
-            !locOn -> { bannerWarn.text = "Location is OFF"; bannerWarn.visibility = View.VISIBLE }
+            !btOn && !locOn -> { 
+                bannerWarn.text = "Bluetooth and Location are OFF - Tap to enable"
+                bannerWarn.visibility = View.VISIBLE 
+            }
+            !btOn -> { 
+                bannerWarn.text = "Bluetooth is OFF - Tap to enable"
+                bannerWarn.visibility = View.VISIBLE 
+            }
+            !locOn -> { 
+                bannerWarn.text = "Location is OFF - Tap to enable"
+                bannerWarn.visibility = View.VISIBLE 
+            }
             else -> bannerWarn.visibility = View.GONE
         }
     }
