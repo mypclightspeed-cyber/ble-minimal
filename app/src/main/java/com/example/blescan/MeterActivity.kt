@@ -14,7 +14,6 @@ import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
 import android.view.View
-import android.view.ViewGroup
 import android.widget.*
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
@@ -34,13 +33,6 @@ class MeterActivity : AppCompatActivity() {
     private val AMITIS_READ_CH = uuid("0000ff01")   // notify
     private val AMITIS_WRITE_CH = uuid("0000ff02")  // write
     private val CMD_BASIC_INFO = hex("DD A5 03 00 FF FD 77")
-    private val CMD_CELL_VOLTAGES = hex("DD A5 04 00 FF FC 77")
-    private val CMD_DEVICE_NAME = hex("DD A5 05 00 FF FB 77")
-
-    // FET Control Commands
-    private val CMD_ENTER_FACTORY_MODE = hex("DD 5A 00 02 56 78 01 F3 77")
-    private val CMD_EXIT_FACTORY_MODE = hex("DD 5A 01 02 00 00 02 1F 77")
-    private val CMD_ENABLE_BOTH_FETS = hex("DD 5A E1 02 00 00 02 1B 77")     // Clear both bits
 
     private fun cmdReadRegister(reg: Int): ByteArray {
         val r = reg and 0xFF
@@ -61,12 +53,7 @@ class MeterActivity : AppCompatActivity() {
     private lateinit var tvCurr: TextView
     private lateinit var tvTemp: TextView
     private lateinit var tvName: TextView
-    private lateinit var tvFetStatus: TextView
     private lateinit var thermometerView: ThermometerView
-
-    // Combined FET Status and Control
-    private lateinit var btnForceOnBms: Button
-    private lateinit var fetStatusContainer: LinearLayout
 
     private lateinit var adapterLv: ArrayAdapter<String>
     private val rows = mutableListOf<String>()                     // "MAC  Name"
@@ -77,7 +64,6 @@ class MeterActivity : AppCompatActivity() {
     private var bluetoothAdapter: BluetoothAdapter? = null
     private var scanner: BluetoothLeScanner? = null
     private var scanning = false
-    private var connected = false
     private val handler = Handler(Looper.getMainLooper())
 
     private var gatt: BluetoothGatt? = null
@@ -118,6 +104,11 @@ class MeterActivity : AppCompatActivity() {
             setTextColor(Color.WHITE)
             setBackgroundColor(Color.parseColor("#DC2626"))
             visibility = View.GONE
+            isClickable = true // اضافه کردن قابلیت کلیک
+            setOnClickListener {
+                // با کلیک روی بنر، تنظیمات مربوطه باز شود
+                openRelevantSettings()
+            }
         }
 
         btnScan = Button(this).apply { text = "Scan Amitis BMS" }
@@ -207,88 +198,18 @@ class MeterActivity : AppCompatActivity() {
             return card to (valueTv to thermometer)
         }
 
-        // Create Combined FET Status and Control Card
-        fun makeFetStatusControlCard(): Pair<LinearLayout, Pair<TextView, Button>> {
-            val card = LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
-                setPadding(24, 18, 24, 18)
-                setBackgroundColor(Color.parseColor("#8B5CF6")) // Purple color
-                val lp = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
-                )
-                lp.setMargins(16, 10, 16, 10)
-                layoutParams = lp
-                elevation = 6f
-            }
-
-            // Left side - Status
-            val statusLayout = LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-                layoutParams = LinearLayout.LayoutParams(
-                    0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f
-                )
-            }
-
-            val statusTitle = TextView(this).apply {
-                text = "FET Status"
-                textSize = 16f
-                setTypeface(typeface, Typeface.BOLD)
-                setTextColor(Color.WHITE)
-            }
-
-            val statusValue = TextView(this).apply {
-                text = "Disconnected"
-                textSize = 18f
-                setTextColor(Color.WHITE)
-            }
-
-            statusLayout.addView(statusTitle)
-            statusLayout.addView(statusValue)
-
-            // Right side - Control Button
-            val controlLayout = LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-                layoutParams = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT
-                )
-            }
-
-            val controlButton = Button(this).apply {
-                text = "⚡ Force ON BMS"
-                layoutParams = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT
-                )
-                setBackgroundColor(Color.parseColor("#10B981")) // Green color
-                setTextColor(Color.WHITE)
-                textSize = 14f
-                setPadding(32, 16, 32, 16)
-                isEnabled = false
-                alpha = 0.5f
-            }
-
-            controlLayout.addView(controlButton)
-
-            card.addView(statusLayout)
-            card.addView(controlLayout)
-
-            return card to (statusValue to controlButton)
-        }
-
         // ترتیب جدید: اول ولتاژ، بعد جریان، بعد دما، در آخر device
         val (cardName, nameValue) = makeCard("Device", "#3B82F6")
         val (cardVolt, voltValue) = makeCard("Voltage (V)", "#10B981")
         val (cardCurr, currValue) = makeCard("Current (A)", "#DC143C")
         val (cardTemp, tempPair) = makeThermometerCard()
-        val (fetCard, fetPair) = makeFetStatusControlCard()
+        
         
         tvVolt = voltValue
         tvCurr = currValue
         tvTemp = tempPair.first
         thermometerView = tempPair.second
         tvName = nameValue
-        tvFetStatus = fetPair.first
-        btnForceOnBms = fetPair.second
-        fetStatusContainer = fetCard
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -303,7 +224,6 @@ class MeterActivity : AppCompatActivity() {
             addView(cardVolt)
             addView(cardCurr)
             addView(cardTemp)
-            addView(fetStatusContainer)
         }
         setContentView(root)
 
@@ -318,11 +238,6 @@ class MeterActivity : AppCompatActivity() {
             if (checkAndRequestPermissions()) startScan()
         }
 
-        // Set up Force ON BMS button listener
-        btnForceOnBms.setOnClickListener { 
-            sendFetCommand(CMD_ENABLE_BOTH_FETS, "Force ON BMS") 
-        }
-
         list.setOnItemClickListener { _, _, pos, _ ->
             val entry = adapterLv.getItem(pos) ?: return@setOnItemClickListener
             val mac = entry.substringBefore("  ")
@@ -331,105 +246,113 @@ class MeterActivity : AppCompatActivity() {
             tvName.text = advertisedName[mac] ?: "Unknown"
             connectTo(dev)
         }
-
-        // Initially disable Force ON BMS button until connected
-        updateForceOnBmsButtonEnabled(false)
     }
 
-    private fun sendFetCommand(command: ByteArray, description: String) {
-        if (!connected) {
-            toast("Not connected to BMS")
-            return
-        }
-
-        // Show confirmation dialog for safety
-        AlertDialog.Builder(this)
-            .setTitle("Force ON BMS")
-            .setMessage("This will enable both charge and discharge FETs. Use only if you're sure the battery is safe to operate. Continue?")
-            .setPositiveButton("Yes, Force ON") { _, _ ->
-                executeForceOnCommand(command, description)
-            }
-            .setNegativeButton("Cancel", null)
-            .show()
-    }
-
-    private fun executeForceOnCommand(command: ByteArray, description: String) {
-        // First enter factory mode
-        sendCommandWithDelay(CMD_ENTER_FACTORY_MODE, 500) {
-            // Then send the actual FET command
-            sendCommandWithDelay(command, 500) {
-                // Then exit factory mode
-                sendCommandWithDelay(CMD_EXIT_FACTORY_MODE, 500) {
-                    toast("$description command sent")
-                    // Refresh basic info to update FET status
-                    handler.postDelayed({
-                        chWrite?.let { w ->
-                            gatt?.let { g ->
-                                w.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
-                                w.value = CMD_BASIC_INFO
-                                g.writeCharacteristic(w)
-                            }
-                        }
-                    }, 1000)
+    // اضافه کردن onActivityResult برای مدیریت بازگشت از تنظیمات
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        
+        // وقتی کاربر از تنظیمات بلوتوث یا لوکیشن برمی‌گردد
+        handler.postDelayed({
+            updateWarningBanner()
+            
+            // اگر همه شرایط مناسب است، اسکن را شروع کن
+            if (ensurePrereqs()) {
+                if (checkAndRequestPermissions()) {
+                    startScan()
                 }
             }
-        }
+        }, 1000) // تاخیر برای اطمینان از اعمال تغییرات
     }
 
-    private fun sendCommandWithDelay(command: ByteArray, delayMs: Long, callback: (() -> Unit)? = null) {
-        chWrite?.let { w ->
-            gatt?.let { g ->
-                w.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
-                w.value = command
-                g.writeCharacteristic(w)
+    override fun onResume() { 
+        super.onResume(); 
+        updateWarningBanner()
+        
+        // اگر در حال اسکن بودیم و قطع شد، دوباره اسکن را شروع کن
+        handler.postDelayed({
+            if (scanning) {
+                if (!ensurePrereqs()) {
+                    stopScan()
+                    toast("Scan stopped due to missing prerequisites")
+                }
             }
-        }
-        callback?.let {
-            handler.postDelayed(it, delayMs)
-        }
+        }, 300)
     }
-
-    private fun updateForceOnBmsButtonEnabled(enabled: Boolean) {
-        btnForceOnBms.isEnabled = enabled
-        btnForceOnBms.alpha = if (enabled) 1.0f else 0.5f
-    }
-
-    override fun onResume() { super.onResume(); updateWarningBanner() }
 
     // ---------- BT/Location prerequisites ----------
     private fun ensurePrereqs(): Boolean {
-        var ok = true
         val btOn = bluetoothAdapter?.isEnabled == true
         val locOn = isLocationEnabled(this)
+        
         if (!btOn) {
-            ok = false
             AlertDialog.Builder(this)
                 .setTitle("Bluetooth is OFF")
                 .setMessage("Please enable Bluetooth to scan for BLE devices.")
                 .setPositiveButton("Open Bluetooth Settings") { _, _ ->
                     startActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS))
                 }.setNegativeButton("Cancel", null).show()
+            return false
         }
+        
         if (!locOn) {
-            ok = false
             AlertDialog.Builder(this)
                 .setTitle("Location is OFF")
                 .setMessage("Location must be ON for BLE scanning on many Android versions.")
                 .setPositiveButton("Open Location Settings") { _, _ ->
                     startActivity(Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS))
                 }.setNegativeButton("Cancel", null).show()
+            return false
         }
+        
         updateWarningBanner()
-        return ok
+        return true
+    }
+
+    // تابع جدید برای باز کردن تنظیمات مربوطه با کلیک روی بنر
+    private fun openRelevantSettings() {
+        val btOn = bluetoothAdapter?.isEnabled == true
+        val locOn = isLocationEnabled(this)
+        
+        when {
+            !btOn && !locOn -> {
+                AlertDialog.Builder(this)
+                    .setTitle("Enable Bluetooth and Location")
+                    .setMessage("Both Bluetooth and Location are required for BLE scanning. Which one do you want to enable first?")
+                    .setPositiveButton("Bluetooth") { _, _ ->
+                        startActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS))
+                    }
+                    .setNegativeButton("Location") { _, _ ->
+                        startActivity(Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS))
+                    }
+                    .setNeutralButton("Cancel", null)
+                    .show()
+            }
+            !btOn -> {
+                startActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS))
+            }
+            !locOn -> {
+                startActivity(Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS))
+            }
+        }
     }
 
     private fun updateWarningBanner() {
         val btOn = bluetoothAdapter?.isEnabled == true
         val locOn = isLocationEnabled(this)
         when {
-            !btOn && !locOn -> { bannerWarn.text = "Bluetooth and Location are OFF"; bannerWarn.visibility = View.VISIBLE }
-            !btOn -> { bannerWarn.text = "Bluetooth is OFF"; bannerWarn.visibility = View.VISIBLE }
-            !locOn -> { bannerWarn.text = "Location is OFF"; bannerWarn.visibility = View.VISIBLE }
+            !btOn && !locOn -> { 
+                bannerWarn.text = "Bluetooth and Location are OFF - Tap to enable"
+                bannerWarn.visibility = View.VISIBLE 
+            }
+            !btOn -> { 
+                bannerWarn.text = "Bluetooth is OFF - Tap to enable"
+                bannerWarn.visibility = View.VISIBLE 
+            }
+            !locOn -> { 
+                bannerWarn.text = "Location is OFF - Tap to enable"
+                bannerWarn.visibility = View.VISIBLE 
+            }
             else -> bannerWarn.visibility = View.GONE
         }
     }
@@ -478,8 +401,20 @@ class MeterActivity : AppCompatActivity() {
 
     private fun startScan() {
         if (scanning) return
-        val ad = bluetoothAdapter
-        if (ad == null || !ad.isEnabled) { toast("Turn ON Bluetooth"); updateWarningBanner(); return }
+        
+        // بررسی وضعیت بلوتوث
+        if (bluetoothAdapter == null || !bluetoothAdapter!!.isEnabled) { 
+            toast("Bluetooth is not available or turned off")
+            updateWarningBanner()
+            return 
+        }
+
+        // همیشه اسکنر را تازه کنیم
+        scanner = bluetoothAdapter!!.bluetoothLeScanner
+        if (scanner == null) {
+            toast("Bluetooth LE Scanner is not available")
+            return
+        }
 
         // reset on each new scan
         devices.clear(); rows.clear(); adapterLv.clear(); advertisedName.clear()
@@ -487,20 +422,33 @@ class MeterActivity : AppCompatActivity() {
         tvVolt.text = "-"
         tvCurr.text = "-"
         tvTemp.text = "-"
-        tvName.text = "-"
-        tvFetStatus.text = "Disconnected"
+        tvName.text = ""
         thermometerView.setTemperature(0.0)
-        updateForceOnBmsButtonEnabled(false)
 
         scanning = true
         toast("Scanning for ${SCAN_MS/1000}s…")
+        
         handler.postDelayed({
             stopScan()
             toast("Scan done: ${rows.size} device(s) found")
         }, SCAN_MS)
 
-        val settings = ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build()
-        scanner?.startScan(null, settings, scanCb)
+        val settings = ScanSettings.Builder()
+            .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
+            .build()
+            
+        val filters = mutableListOf<ScanFilter>()
+        // اگر می‌خواهید فقط دستگاه‌های خاصی را اسکن کنید، فیلترها را اینجا اضافه کنید
+        
+        try {
+            scanner?.startScan(filters, settings, scanCb)
+        } catch (e: SecurityException) {
+            toast("Permission denied for Bluetooth scanning")
+            scanning = false
+        } catch (e: Exception) {
+            toast("Scan failed: ${e.message}")
+            scanning = false
+        }
     }
 
     private fun stopScan() {
@@ -512,37 +460,55 @@ class MeterActivity : AppCompatActivity() {
     // ---------- connect/services ----------
     private fun connectTo(device: BluetoothDevice) {
         stopScan()
+        
+        // قطع اتصال قبلی قبل از اتصال به دستگاه جدید
+        disconnectFromCurrentDevice()
+        
         toast("Connecting to ${device.address}…")
-        gatt?.close()
+        
+        // Reset UI values when connecting to new device
+        gauge.setPercent(0)
+        tvVolt.text = "-"
+        tvCurr.text = "-"
+        tvTemp.text = "-"
+        thermometerView.setTemperature(0.0)
+        
         gatt = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M)
             device.connectGatt(this, false, gattCb, BluetoothDevice.TRANSPORT_LE)
         else
             device.connectGatt(this, false, gattCb)
     }
 
+    // تابع جدید برای قطع اتصال از دستگاه فعلی
+    private fun disconnectFromCurrentDevice() {
+        handler.removeCallbacks(pollTask)
+        chNotify = null
+        chWrite = null
+        rxBuffer.clear()
+        
+        gatt?.let { g ->
+            try {
+                g.disconnect()
+                g.close()
+            } catch (e: Exception) {
+                // ignore errors during disconnect
+            }
+            gatt = null
+        }
+    }
+
     private val gattCb = object : BluetoothGattCallback() {
         override fun onConnectionStateChange(g: BluetoothGatt, status: Int, newState: Int) {
-            runOnUiThread { 
-                toast("State: ${stateName(newState)} (status=$status)") 
-                connected = (newState == BluetoothProfile.STATE_CONNECTED)
-                updateForceOnBmsButtonEnabled(connected)
-                if (!connected) {
-                    tvFetStatus.text = "Disconnected"
-                    tvFetStatus.setTextColor(Color.WHITE)
-                }
-            }
+            runOnUiThread { toast("State: ${stateName(newState)} (status=$status)") }
             if (newState == BluetoothProfile.STATE_CONNECTED) {
                 g.discoverServices()
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
                 handler.removeCallbacks(pollTask)
-                chNotify = null; chWrite = null; rxBuffer.clear()
+                chNotify = null
+                chWrite = null
+                rxBuffer.clear()
                 g.close()
-                runOnUiThread {
-                    connected = false
-                    updateForceOnBmsButtonEnabled(false)
-                    tvFetStatus.text = "Disconnected"
-                    tvFetStatus.setTextColor(Color.WHITE)
-                }
+                gatt = null
             }
         }
 
@@ -553,11 +519,14 @@ class MeterActivity : AppCompatActivity() {
             runOnUiThread {
                 if (svc == null || chNotify == null || chWrite == null) {
                     toast("Amitis FF00/FF01/FF02 not found")
-                    tvFetStatus.text = "Service Error"
+                    disconnectFromCurrentDevice()
                 } else {
                     toast("Amitis service ready")
                 }
             }
+            
+            if (svc == null || chNotify == null || chWrite == null) return
+            
             chNotify?.let { notifyCh ->
                 g.setCharacteristicNotification(notifyCh, true)
                 val cccd = notifyCh.getDescriptor(UUID.fromString("00002902-0000-1000-8000-00805f9b34fb"))
@@ -615,7 +584,7 @@ class MeterActivity : AppCompatActivity() {
         }
     }
 
-    // payload: voltage(2) current(2s) ... soc (byte) at offset 19, FET status at offset 0x13
+    // payload: voltage(2) current(2s) ... soc (byte) at offset 19
     private fun handleBasicInfo(p: ByteArray) {
         if (p.size < 24) return
         val vRaw = ((p[0].toInt() and 0xFF) shl 8) or (p[1].toInt() and 0xFF)
@@ -625,11 +594,6 @@ class MeterActivity : AppCompatActivity() {
         val voltage = vRaw / 100.0
         val current = iRaw / 100.0
         val soc = p[19].toInt() and 0xFF
-        
-        // Extract FET status from byte 0x13
-        val fetStatusByte = p[0x13].toInt() and 0xFF
-        val chargeFetEnabled = (fetStatusByte and 0x01) != 0
-        val dischargeFetEnabled = (fetStatusByte and 0x02) != 0
 
         // Temperature extraction per JBD (0x03) with null fallback
         val dataStart = 4
@@ -653,29 +617,6 @@ class MeterActivity : AppCompatActivity() {
             tvCurr.text = String.format("%.3f", current)
             tvTemp.text = tempText
             thermometerView.setTemperature(tempValue)
-            
-            // Update FET status display
-            updateFetStatusDisplay(chargeFetEnabled, dischargeFetEnabled)
-        }
-    }
-
-    private fun updateFetStatusDisplay(chargeFet: Boolean, dischargeFet: Boolean) {
-        val chargeStatus = if (chargeFet) "🔋 CHG ON" else "⛔ CHG OFF"
-        val dischargeStatus = if (dischargeFet) "⚡ DSG ON" else "⛔ DSG OFF"
-        
-        tvFetStatus.text = "$chargeStatus | $dischargeStatus"
-        
-        // Color coding
-        when {
-            chargeFet && dischargeFet -> {
-                tvFetStatus.setTextColor(Color.parseColor("#10B981")) // Green - normal
-            }
-            !chargeFet && !dischargeFet -> {
-                tvFetStatus.setTextColor(Color.parseColor("#EF4444")) // Red - protection active
-            }
-            else -> {
-                tvFetStatus.setTextColor(Color.parseColor("#F59E0B")) // Yellow - mixed state
-            }
         }
     }
 
@@ -694,7 +635,7 @@ class MeterActivity : AppCompatActivity() {
     override fun onDestroy() {
         stopScan()
         handler.removeCallbacks(pollTask)
-        gatt?.close()
+        disconnectFromCurrentDevice()
         super.onDestroy()
     }
 
