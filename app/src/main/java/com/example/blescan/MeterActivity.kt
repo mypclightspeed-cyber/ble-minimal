@@ -174,7 +174,7 @@ class MeterActivity : AppCompatActivity() {
             }
             
             val titleTv = TextView(this).apply {
-                text = "Temperature (°„C)"
+                text = Temperature (°„C)
                 textSize = 16f
                 setTypeface(typeface, Typeface.BOLD)
                 setTextColor(Color.WHITE)
