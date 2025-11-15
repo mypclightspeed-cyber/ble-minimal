@@ -104,9 +104,9 @@ class MeterActivity : AppCompatActivity() {
             setTextColor(Color.WHITE)
             setBackgroundColor(Color.parseColor("#DC2626"))
             visibility = View.GONE
-            isClickable = true // اضافه کردن قابلیت کلیک
+            isClickable = true // 丕囟丕賮賴 讴乇丿賳 賯丕亘賱蹖鬲 讴賱蹖讴
             setOnClickListener {
-                // با کلیک روی بنر، تنظیمات مربوطه باز شود
+                // 亘丕 讴賱蹖讴 乇賵蹖 亘賳乇貙 鬲賳馗蹖賲丕鬲 賲乇亘賵胤賴 亘丕夭 卮賵丿
                 openRelevantSettings()
             }
         }
@@ -114,7 +114,7 @@ class MeterActivity : AppCompatActivity() {
         btnScan = Button(this).apply { text = "Scan Amitis BMS" }
         list = ListView(this)
 
-        // Gauge style 3 (modern half-circle) with A1: 180° sweep, start at 180°
+        // Gauge style 3 (modern half-circle) with A1: 180掳 sweep, start at 180掳
         gauge = ModernHalfGauge(this).apply {
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 380
@@ -169,14 +169,15 @@ class MeterActivity : AppCompatActivity() {
                 layoutParams = LinearLayout.LayoutParams(
                     0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f
                 ).apply {
-                    rightMargin = 20 // ایجاد فاصله بین متن و ترمومتر
+                    rightMargin = 20 // 丕蹖噩丕丿 賮丕氐賱賴 亘蹖賳 賲鬲賳 賵 鬲乇賲賵賲鬲乇
                 }
             }
             
             val titleTv = TextView(this).apply {
-                text = "Temperature (°C)"
+
+                text = "Temperature (掳C)"
                 textSize = 16f
-                setTypeface(typeface, Typeface.BOLD)
+                setTypeface(Typeface.DEFAULT, Typeface.BOLD)
                 setTextColor(Color.WHITE)
             }
             val valueTv = TextView(this).apply {
@@ -189,7 +190,7 @@ class MeterActivity : AppCompatActivity() {
             leftLayout.addView(valueTv)
             
             val thermometer = ThermometerView(this).apply {
-                layoutParams = LinearLayout.LayoutParams(100, 140) // افزایش ارتفاع و عرض
+                layoutParams = LinearLayout.LayoutParams(100, 140) // 丕賮夭丕蹖卮 丕乇鬲賮丕毓 賵 毓乇囟
             }
             
             card.addView(leftLayout)
@@ -198,7 +199,7 @@ class MeterActivity : AppCompatActivity() {
             return card to (valueTv to thermometer)
         }
 
-        // ترتیب جدید: اول ولتاژ، بعد جریان، بعد دما، در آخر device
+        // 鬲乇鬲蹖亘 噩丿蹖丿: 丕賵賱 賵賱鬲丕跇貙 亘毓丿 噩乇蹖丕賳貙 亘毓丿 丿賲丕貙 丿乇 丌禺乇 device
         val (cardName, nameValue) = makeCard("Device", "#3B82F6")
         val (cardVolt, voltValue) = makeCard("Voltage (V)", "#10B981")
         val (cardCurr, currValue) = makeCard("Current (A)", "#DC143C")
@@ -248,28 +249,28 @@ class MeterActivity : AppCompatActivity() {
         }
     }
 
-    // اضافه کردن onActivityResult برای مدیریت بازگشت از تنظیمات
+    // 丕囟丕賮賴 讴乇丿賳 onActivityResult 亘乇丕蹖 賲丿蹖乇蹖鬲 亘丕夭诏卮鬲 丕夭 鬲賳馗蹖賲丕鬲
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
         
-        // وقتی کاربر از تنظیمات بلوتوث یا لوکیشن برمی‌گردد
+        // 賵賯鬲蹖 讴丕乇亘乇 丕夭 鬲賳馗蹖賲丕鬲 亘賱賵鬲賵孬 蹖丕 賱賵讴蹖卮賳 亘乇賲蹖鈥屭必�
         handler.postDelayed({
             updateWarningBanner()
             
-            // اگر همه شرایط مناسب است، اسکن را شروع کن
+            // 丕诏乇 賴賲賴 卮乇丕蹖胤 賲賳丕爻亘 丕爻鬲貙 丕爻讴賳 乇丕 卮乇賵毓 讴賳
             if (ensurePrereqs()) {
                 if (checkAndRequestPermissions()) {
                     startScan()
                 }
             }
-        }, 1000) // تاخیر برای اطمینان از اعمال تغییرات
+        }, 1000) // 鬲丕禺蹖乇 亘乇丕蹖 丕胤賲蹖賳丕賳 丕夭 丕毓賲丕賱 鬲睾蹖蹖乇丕鬲
     }
 
     override fun onResume() { 
         super.onResume(); 
         updateWarningBanner()
         
-        // اگر در حال اسکن بودیم و قطع شد، دوباره اسکن را شروع کن
+        // 丕诏乇 丿乇 丨丕賱 丕爻讴賳 亘賵丿蹖賲 賵 賯胤毓 卮丿貙 丿賵亘丕乇賴 丕爻讴賳 乇丕 卮乇賵毓 讴賳
         handler.postDelayed({
             if (scanning) {
                 if (!ensurePrereqs()) {
@@ -309,7 +310,7 @@ class MeterActivity : AppCompatActivity() {
         return true
     }
 
-    // تابع جدید برای باز کردن تنظیمات مربوطه با کلیک روی بنر
+    // 鬲丕亘毓 噩丿蹖丿 亘乇丕蹖 亘丕夭 讴乇丿賳 鬲賳馗蹖賲丕鬲 賲乇亘賵胤賴 亘丕 讴賱蹖讴 乇賵蹖 亘賳乇
     private fun openRelevantSettings() {
         val btOn = bluetoothAdapter?.isEnabled == true
         val locOn = isLocationEnabled(this)
@@ -402,14 +403,14 @@ class MeterActivity : AppCompatActivity() {
     private fun startScan() {
         if (scanning) return
         
-        // بررسی وضعیت بلوتوث
+        // 亘乇乇爻蹖 賵囟毓蹖鬲 亘賱賵鬲賵孬
         if (bluetoothAdapter == null || !bluetoothAdapter!!.isEnabled) { 
             toast("Bluetooth is not available or turned off")
             updateWarningBanner()
             return 
         }
 
-        // همیشه اسکنر را تازه کنیم
+        // 賴賲蹖卮賴 丕爻讴賳乇 乇丕 鬲丕夭賴 讴賳蹖賲
         scanner = bluetoothAdapter!!.bluetoothLeScanner
         if (scanner == null) {
             toast("Bluetooth LE Scanner is not available")
@@ -438,7 +439,7 @@ class MeterActivity : AppCompatActivity() {
             .build()
             
         val filters = mutableListOf<ScanFilter>()
-        // اگر می‌خواهید فقط دستگاه‌های خاصی را اسکن کنید، فیلترها را اینجا اضافه کنید
+        // 丕诏乇 賲蹖鈥屫堌з囒屫� 賮賯胤 丿爻鬲诏丕賴鈥屬囏й� 禺丕氐蹖 乇丕 丕爻讴賳 讴賳蹖丿貙 賮蹖賱鬲乇賴丕 乇丕 丕蹖賳噩丕 丕囟丕賮賴 讴賳蹖丿
         
         try {
             scanner?.startScan(filters, settings, scanCb)
@@ -461,7 +462,7 @@ class MeterActivity : AppCompatActivity() {
     private fun connectTo(device: BluetoothDevice) {
         stopScan()
         
-        // قطع اتصال قبلی قبل از اتصال به دستگاه جدید
+        // 賯胤毓 丕鬲氐丕賱 賯亘賱蹖 賯亘賱 丕夭 丕鬲氐丕賱 亘賴 丿爻鬲诏丕賴 噩丿蹖丿
         disconnectFromCurrentDevice()
         
         toast("Connecting to ${device.address}...")
@@ -479,7 +480,7 @@ class MeterActivity : AppCompatActivity() {
             device.connectGatt(this, false, gattCb)
     }
 
-    // تابع جدید برای قطع اتصال از دستگاه فعلی
+    // 鬲丕亘毓 噩丿蹖丿 亘乇丕蹖 賯胤毓 丕鬲氐丕賱 丕夭 丿爻鬲诏丕賴 賮毓賱蹖
     private fun disconnectFromCurrentDevice() {
         handler.removeCallbacks(pollTask)
         chNotify = null
@@ -676,12 +677,12 @@ class MeterActivity : AppCompatActivity() {
             val height = height.toFloat()
             val centerX = width / 2
             
-            // تنظیمات جدید برای نمایش بهتر
+            // 鬲賳馗蹖賲丕鬲 噩丿蹖丿 亘乇丕蹖 賳賲丕蹖卮 亘賴鬲乇
             val tubeWidth = width * 0.2f
             val tubeLeft = centerX - tubeWidth / 2
             val tubeRight = centerX + tubeWidth / 2
-            val tubeTop = height * 0.1f  // شروع از بالاتر
-            val tubeBottom = height * 0.75f // پایان بالاتر برای فضای بیشتر برای bulb
+            val tubeTop = height * 0.1f  // 卮乇賵毓 丕夭 亘丕賱丕鬲乇
+            val tubeBottom = height * 0.75f // 倬丕蹖丕賳 亘丕賱丕鬲乇 亘乇丕蹖 賮囟丕蹖 亘蹖卮鬲乇 亘乇丕蹖 bulb
             val tubeHeight = tubeBottom - tubeTop
             
             // Draw outer case
@@ -690,13 +691,13 @@ class MeterActivity : AppCompatActivity() {
                 tubeWidth / 3, tubeWidth / 3, casePaint
             )
             
-            // Draw bulb at bottom - با فاصله از پایین
+            // Draw bulb at bottom - 亘丕 賮丕氐賱賴 丕夭 倬丕蹖蹖賳
             val bulbRadius = tubeWidth * 1f
-            val bulbCenterY = height - bulbRadius * 1f // موقعیت bulb از پایین
+            val bulbCenterY = height - bulbRadius * 1f // 賲賵賯毓蹖鬲 bulb 丕夭 倬丕蹖蹖賳
             
             canvas.drawCircle(centerX, bulbCenterY, bulbRadius, bulbPaint)
             
-            // Calculate mercury level based on temperature (0°C to 90°C range)
+            // Calculate mercury level based on temperature (0掳C to 90掳C range)
             val minTemp = 0
             val maxTemp = 90.0
             val normalizedTemp = (temperature - minTemp) / (maxTemp - minTemp)
@@ -711,7 +712,7 @@ class MeterActivity : AppCompatActivity() {
             
             bulbPaint.color = mercuryPaint.color
             
-            // Draw mercury column - فقط تا بالای bulb
+            // Draw mercury column - 賮賯胤 鬲丕 亘丕賱丕蹖 bulb
             val mercuryWidth = tubeWidth * 0.5f
             val mercuryLeft = centerX - mercuryWidth / 2
             val mercuryRight = centerX + mercuryWidth / 2
@@ -784,7 +785,7 @@ class MeterActivity : AppCompatActivity() {
             style = Paint.Style.FILL
             setShadowLayer(25f, 0f, 0f, Color.parseColor("#FFEF4444")) // Strong red glow
         }
-        // SOC text — bigger and blue, drawn upper-middle with extra gap
+        // SOC text 鈥� bigger and blue, drawn upper-middle with extra gap
         private val socPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.parseColor("#2563EB") // blue
             textAlign = Paint.Align.LEFT
@@ -797,7 +798,7 @@ class MeterActivity : AppCompatActivity() {
             textSize = 54f
             typeface = Typeface.create(Typeface.DEFAULT_BOLD, Typeface.BOLD)
         }
-        // Arc labels — large
+        // Arc labels 鈥� large
         private val textLabel = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.parseColor("#374151")
             textAlign = Paint.Align.CENTER
@@ -825,7 +826,7 @@ class MeterActivity : AppCompatActivity() {
                 (w + size) / 2f, pad + (baseSize - size) / 2f + size
             )
 
-            // A1: sweep 180°, start at left horizon (180°), clockwise
+            // A1: sweep 180掳, start at left horizon (180掳), clockwise
             val startAngle = 180f
             val sweepTotal = 180f
 
