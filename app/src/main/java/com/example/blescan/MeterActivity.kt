@@ -33,6 +33,9 @@ class MeterActivity : AppCompatActivity() {
     private val AMITIS_READ_CH = uuid("0000ff01")   // notify
     private val AMITIS_WRITE_CH = uuid("0000ff02")  // write
     private val CMD_BASIC_INFO = hex("DD A5 03 00 FF FD 77")
+    
+    // Updated FET control commands for your specific BMS
+    private val CMD_FET_FORCE_ON = hex("DD 5A E1 02 00 00 FF 1D 77")  // Force both FETs ON - YOUR SPECIFIC COMMAND
 
     private fun cmdReadRegister(reg: Int): ByteArray {
         val r = reg and 0xFF
@@ -55,6 +58,7 @@ class MeterActivity : AppCompatActivity() {
     private lateinit var tvName: TextView
     private lateinit var tvFetStatus: TextView // Added for FET status
     private lateinit var thermometerView: ThermometerView
+    private lateinit var fetSwitch: Switch // Added for FET control
 
     private lateinit var adapterLv: ArrayAdapter<String>
     private val rows = mutableListOf<String>()                     // "MAC  Name"
@@ -197,12 +201,12 @@ class MeterActivity : AppCompatActivity() {
             return card to (valueTv to thermometer)
         }
 
-        // Create FET status card
-        fun makeFetStatusCard(): Pair<LinearLayout, TextView> {
+        // Create FET status card with switch
+        fun makeFetStatusCard(): Pair<LinearLayout, Pair<TextView, Switch>> {
             val card = LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
+                orientation = LinearLayout.HORIZONTAL
                 setPadding(24, 18, 24, 18)
-                setBackgroundColor(Color.parseColor("#8B5CF6")) // Purple color for FET status
+                setBackgroundColor(Color.parseColor("#8B5CF6"))
                 val lp = LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
                 )
@@ -210,6 +214,16 @@ class MeterActivity : AppCompatActivity() {
                 layoutParams = lp
                 elevation = 6f
             }
+            
+            val leftLayout = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                layoutParams = LinearLayout.LayoutParams(
+                    0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f
+                ).apply {
+                    rightMargin = 20
+                }
+            }
+            
             val titleTv = TextView(this).apply {
                 text = "FET Status"
                 textSize = 16f
@@ -218,11 +232,41 @@ class MeterActivity : AppCompatActivity() {
             }
             val valueTv = TextView(this).apply {
                 text = "-"
-                textSize = 20f // Slightly smaller font for status text
+                textSize = 16f
                 setTextColor(Color.WHITE)
             }
-            card.addView(titleTv); card.addView(valueTv)
-            return card to valueTv
+            
+            leftLayout.addView(titleTv)
+            leftLayout.addView(valueTv)
+            
+            val switchLayout = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT
+                )
+                gravity = android.view.Gravity.CENTER
+            }
+            
+            val switchLabel = TextView(this).apply {
+                text = "Force ON"
+                textSize = 14f
+                setTextColor(Color.WHITE)
+                setTypeface(typeface, Typeface.BOLD)
+            }
+            
+            val switch = Switch(this).apply {
+                text = ""
+                isChecked = false
+                setPadding(20, 10, 20, 10)
+            }
+            
+            switchLayout.addView(switchLabel)
+            switchLayout.addView(switch)
+            
+            card.addView(leftLayout)
+            card.addView(switchLayout)
+            
+            return card to (valueTv to switch)
         }
 
         // ترتیب جدید: اول ولتاژ، بعد جریان، بعد دما، بعد FET status، در آخر device
@@ -230,14 +274,15 @@ class MeterActivity : AppCompatActivity() {
         val (cardVolt, voltValue) = makeCard("Voltage (V)", "#10B981")
         val (cardCurr, currValue) = makeCard("Current (A)", "#DC143C")
         val (cardTemp, tempPair) = makeThermometerCard()
-        val (cardFet, fetValue) = makeFetStatusCard() // Added FET status card
+        val (cardFet, fetPair) = makeFetStatusCard() // Added FET status card with switch
         
         tvVolt = voltValue
         tvCurr = currValue
         tvTemp = tempPair.first
         thermometerView = tempPair.second
         tvName = nameValue
-        tvFetStatus = fetValue // Initialize FET status TextView
+        tvFetStatus = fetPair.first // Initialize FET status TextView
+        fetSwitch = fetPair.second // Initialize FET switch
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -273,6 +318,56 @@ class MeterActivity : AppCompatActivity() {
             val dev = devices[mac] ?: return@setOnItemClickListener
             tvName.text = advertisedName[mac] ?: "Unknown"
             connectTo(dev)
+        }
+
+        // Set up FET switch listener
+        fetSwitch.setOnCheckedChangeListener { _, isChecked ->
+            if (isChecked) {
+                // Show confirmation dialog before forcing FETs ON
+                AlertDialog.Builder(this)
+                    .setTitle("Force FETs ON")
+                    .setMessage("Are you sure you want to force both Charge and Discharge FETs ON?\n\nWARNING: This bypasses BMS protection!")
+                    .setPositiveButton("Yes, Force ON") { _, _ ->
+                        forceFetsOn()
+                    }
+                    .setNegativeButton("Cancel") { _, _ ->
+                        fetSwitch.isChecked = false
+                    }
+                    .show()
+            } else {
+                // When switch is turned off, just update the UI
+                // The BMS will automatically control FETs based on its normal operation
+                toast("FET control returned to BMS automatic operation")
+            }
+        }
+    }
+
+    // Function to force both FETs ON using YOUR SPECIFIC COMMAND
+    private fun forceFetsOn() {
+        chWrite?.let { w ->
+            gatt?.let { g ->
+                w.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
+                w.value = CMD_FET_FORCE_ON
+                g.writeCharacteristic(w)
+                toast("Sending FET force ON command: DD 5A E1 02 00 00 FF 1D 77")
+                
+                // Schedule a basic info request to update the status after a short delay
+                handler.postDelayed({
+                    chWrite?.let { w2 ->
+                        gatt?.let { g2 ->
+                            w2.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
+                            w2.value = CMD_BASIC_INFO
+                            g2.writeCharacteristic(w2)
+                        }
+                    }
+                }, 1000)
+            } ?: run {
+                toast("Not connected to BMS")
+                fetSwitch.isChecked = false
+            }
+        } ?: run {
+            toast("Not connected to BMS")
+            fetSwitch.isChecked = false
         }
     }
 
@@ -446,6 +541,7 @@ class MeterActivity : AppCompatActivity() {
         tvName.text = ""
         tvFetStatus.text = "-" // Reset FET status
         thermometerView.setTemperature(0.0)
+        fetSwitch.isChecked = false // Reset FET switch
 
         scanning = true
         toast("Scanning for ${SCAN_MS/1000}s...")
@@ -493,6 +589,7 @@ class MeterActivity : AppCompatActivity() {
         tvTemp.text = "-"
         tvFetStatus.text = "-" // Reset FET status
         thermometerView.setTemperature(0.0)
+        fetSwitch.isChecked = false // Reset FET switch
         
         gatt = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M)
             device.connectGatt(this, false, gattCb, BluetoothDevice.TRANSPORT_LE)
@@ -529,6 +626,11 @@ class MeterActivity : AppCompatActivity() {
                 rxBuffer.clear()
                 g.close()
                 gatt = null
+                
+                // Reset FET switch when disconnected
+                runOnUiThread {
+                    fetSwitch.isChecked = false
+                }
             }
         }
 
@@ -540,6 +642,7 @@ class MeterActivity : AppCompatActivity() {
                 if (svc == null || chNotify == null || chWrite == null) {
                     toast("Amitis FF00/FF01/FF02 not found")
                     disconnectFromCurrentDevice()
+                    fetSwitch.isChecked = false
                 } else {
                     toast("Amitis service ready")
                 }
@@ -667,6 +770,19 @@ class MeterActivity : AppCompatActivity() {
                 }
             }
             tvFetStatus.text = fetStatusText
+            
+            // Update switch state based on actual FET status
+            // If both FETs are ON, keep the switch checked, otherwise uncheck it
+            if (chargeFET && dischargeFET) {
+                // Switch remains checked if user manually set it
+                // Don't automatically uncheck as it might be intentional
+            } else {
+                // If FETs are not both ON and switch is checked, it means the command didn't work
+                if (fetSwitch.isChecked) {
+                    // Don't automatically uncheck - let user decide
+                    // toast("FETs may not be forced ON - check status")
+                }
+            }
         }
     }
 
