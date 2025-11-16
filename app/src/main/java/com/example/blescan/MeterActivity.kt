@@ -53,6 +53,7 @@ class MeterActivity : AppCompatActivity() {
     private lateinit var tvCurr: TextView
     private lateinit var tvTemp: TextView
     private lateinit var tvName: TextView
+    private lateinit var tvFetStatus: TextView // Added for FET status
     private lateinit var thermometerView: ThermometerView
 
     private lateinit var adapterLv: ArrayAdapter<String>
@@ -104,9 +105,8 @@ class MeterActivity : AppCompatActivity() {
             setTextColor(Color.WHITE)
             setBackgroundColor(Color.parseColor("#DC2626"))
             visibility = View.GONE
-            isClickable = true // اضافه کردن قابلیت کلیک
+            isClickable = true
             setOnClickListener {
-                // با کلیک روی بنر، تنظیمات مربوطه باز شود
                 openRelevantSettings()
             }
         }
@@ -114,7 +114,6 @@ class MeterActivity : AppCompatActivity() {
         btnScan = Button(this).apply { text = "Scan Amitis BMS" }
         list = ListView(this)
 
-        // Gauge style 3 (modern half-circle) with A1: 180° sweep, start at 180°
         gauge = ModernHalfGauge(this).apply {
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 380
@@ -138,12 +137,12 @@ class MeterActivity : AppCompatActivity() {
             val titleTv = TextView(this).apply {
                 text = title
                 textSize = 16f
-                setTypeface(typeface, Typeface.BOLD) // titles bold
+                setTypeface(typeface, Typeface.BOLD)
                 setTextColor(Color.WHITE)
             }
             val valueTv = TextView(this).apply {
                 text = "-"
-                textSize = 26f // NOT bold
+                textSize = 26f
                 setTextColor(Color.WHITE)
             }
             card.addView(titleTv); card.addView(valueTv)
@@ -169,12 +168,11 @@ class MeterActivity : AppCompatActivity() {
                 layoutParams = LinearLayout.LayoutParams(
                     0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f
                 ).apply {
-                    rightMargin = 20 // ایجاد فاصله بین متن و ترمومتر
+                    rightMargin = 20
                 }
             }
             
             val titleTv = TextView(this).apply {
-
                 text = "Temperature (°C)"
                 textSize = 16f
                 setTypeface(Typeface.DEFAULT, Typeface.BOLD)
@@ -190,7 +188,7 @@ class MeterActivity : AppCompatActivity() {
             leftLayout.addView(valueTv)
             
             val thermometer = ThermometerView(this).apply {
-                layoutParams = LinearLayout.LayoutParams(100, 140) // افزایش ارتفاع و عرض
+                layoutParams = LinearLayout.LayoutParams(100, 140)
             }
             
             card.addView(leftLayout)
@@ -199,18 +197,47 @@ class MeterActivity : AppCompatActivity() {
             return card to (valueTv to thermometer)
         }
 
-        // ترتیب جدید: اول ولتاژ، بعد جریان، بعد دما، در آخر device
+        // Create FET status card
+        fun makeFetStatusCard(): Pair<LinearLayout, TextView> {
+            val card = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(24, 18, 24, 18)
+                setBackgroundColor(Color.parseColor("#8B5CF6")) // Purple color for FET status
+                val lp = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+                )
+                lp.setMargins(16, 10, 16, 10)
+                layoutParams = lp
+                elevation = 6f
+            }
+            val titleTv = TextView(this).apply {
+                text = "FET Status"
+                textSize = 16f
+                setTypeface(typeface, Typeface.BOLD)
+                setTextColor(Color.WHITE)
+            }
+            val valueTv = TextView(this).apply {
+                text = "-"
+                textSize = 20f // Slightly smaller font for status text
+                setTextColor(Color.WHITE)
+            }
+            card.addView(titleTv); card.addView(valueTv)
+            return card to valueTv
+        }
+
+        // ترتیب جدید: اول ولتاژ، بعد جریان، بعد دما، بعد FET status، در آخر device
         val (cardName, nameValue) = makeCard("Device", "#3B82F6")
         val (cardVolt, voltValue) = makeCard("Voltage (V)", "#10B981")
         val (cardCurr, currValue) = makeCard("Current (A)", "#DC143C")
         val (cardTemp, tempPair) = makeThermometerCard()
-        
+        val (cardFet, fetValue) = makeFetStatusCard() // Added FET status card
         
         tvVolt = voltValue
         tvCurr = currValue
         tvTemp = tempPair.first
         thermometerView = tempPair.second
         tvName = nameValue
+        tvFetStatus = fetValue // Initialize FET status TextView
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -220,11 +247,12 @@ class MeterActivity : AppCompatActivity() {
             addView(btnScan)
             addView(list, LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
-            addView(gauge)          // gauge ABOVE parameters
+            addView(gauge)
             addView(cardName)
             addView(cardVolt)
             addView(cardCurr)
             addView(cardTemp)
+            addView(cardFet) // Add FET status card to layout
         }
         setContentView(root)
 
@@ -243,34 +271,29 @@ class MeterActivity : AppCompatActivity() {
             val entry = adapterLv.getItem(pos) ?: return@setOnItemClickListener
             val mac = entry.substringBefore("  ")
             val dev = devices[mac] ?: return@setOnItemClickListener
-            // Use advertiser name directly
             tvName.text = advertisedName[mac] ?: "Unknown"
             connectTo(dev)
         }
     }
 
-    // اضافه کردن onActivityResult برای مدیریت بازگشت از تنظیمات
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
         
-        // وقتی کاربر از تنظیمات بلوتوث یا لوکیشن برمی‌گردد
         handler.postDelayed({
             updateWarningBanner()
             
-            // اگر همه شرایط مناسب است، اسکن را شروع کن
             if (ensurePrereqs()) {
                 if (checkAndRequestPermissions()) {
                     startScan()
                 }
             }
-        }, 1000) // تاخیر برای اطمینان از اعمال تغییرات
+        }, 1000)
     }
 
     override fun onResume() { 
         super.onResume(); 
         updateWarningBanner()
         
-        // اگر در حال اسکن بودیم و قطع شد، دوباره اسکن را شروع کن
         handler.postDelayed({
             if (scanning) {
                 if (!ensurePrereqs()) {
@@ -310,7 +333,6 @@ class MeterActivity : AppCompatActivity() {
         return true
     }
 
-    // تابع جدید برای باز کردن تنظیمات مربوطه با کلیک روی بنر
     private fun openRelevantSettings() {
         val btOn = bluetoothAdapter?.isEnabled == true
         val locOn = isLocationEnabled(this)
@@ -403,14 +425,12 @@ class MeterActivity : AppCompatActivity() {
     private fun startScan() {
         if (scanning) return
         
-        // بررسی وضعیت بلوتوث
         if (bluetoothAdapter == null || !bluetoothAdapter!!.isEnabled) { 
             toast("Bluetooth is not available or turned off")
             updateWarningBanner()
             return 
         }
 
-        // همیشه اسکنر را تازه کنیم
         scanner = bluetoothAdapter!!.bluetoothLeScanner
         if (scanner == null) {
             toast("Bluetooth LE Scanner is not available")
@@ -424,6 +444,7 @@ class MeterActivity : AppCompatActivity() {
         tvCurr.text = "-"
         tvTemp.text = "-"
         tvName.text = ""
+        tvFetStatus.text = "-" // Reset FET status
         thermometerView.setTemperature(0.0)
 
         scanning = true
@@ -439,7 +460,6 @@ class MeterActivity : AppCompatActivity() {
             .build()
             
         val filters = mutableListOf<ScanFilter>()
-        // اگر می‌خواهید فقط دستگاه‌های خاصی را اسکن کنید، فیلترها را اینجا اضافه کنید
         
         try {
             scanner?.startScan(filters, settings, scanCb)
@@ -462,7 +482,6 @@ class MeterActivity : AppCompatActivity() {
     private fun connectTo(device: BluetoothDevice) {
         stopScan()
         
-        // قطع اتصال قبلی قبل از اتصال به دستگاه جدید
         disconnectFromCurrentDevice()
         
         toast("Connecting to ${device.address}...")
@@ -472,6 +491,7 @@ class MeterActivity : AppCompatActivity() {
         tvVolt.text = "-"
         tvCurr.text = "-"
         tvTemp.text = "-"
+        tvFetStatus.text = "-" // Reset FET status
         thermometerView.setTemperature(0.0)
         
         gatt = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M)
@@ -480,7 +500,6 @@ class MeterActivity : AppCompatActivity() {
             device.connectGatt(this, false, gattCb)
     }
 
-    // تابع جدید برای قطع اتصال از دستگاه فعلی
     private fun disconnectFromCurrentDevice() {
         handler.removeCallbacks(pollTask)
         chNotify = null
@@ -585,7 +604,7 @@ class MeterActivity : AppCompatActivity() {
         }
     }
 
-    // payload: voltage(2) current(2s) ... soc (byte) at offset 19
+    // payload: voltage(2) current(2s) ... soc (byte) at offset 19, FET status at offset 0x13
     private fun handleBasicInfo(p: ByteArray) {
         if (p.size < 24) return
         val vRaw = ((p[0].toInt() and 0xFF) shl 8) or (p[1].toInt() and 0xFF)
@@ -595,6 +614,13 @@ class MeterActivity : AppCompatActivity() {
         val voltage = vRaw / 100.0
         val current = iRaw / 100.0
         val soc = p[19].toInt() and 0xFF
+
+        // Read FET status from byte offset 0x13 (19 in decimal)
+        val fetStatusByte = p[19].toInt() and 0xFF
+        
+        // Extract FET status bits according to JBD register map
+        val chargeFET = (fetStatusByte and 0x01) != 0  // bit 0: charge FET
+        val dischargeFET = (fetStatusByte and 0x02) != 0 // bit 1: discharge FET
 
         // Temperature extraction per JBD (0x03) with null fallback
         val dataStart = 4
@@ -618,6 +644,15 @@ class MeterActivity : AppCompatActivity() {
             tvCurr.text = String.format("%.3f", current)
             tvTemp.text = tempText
             thermometerView.setTemperature(tempValue)
+            
+            // Update FET status display
+            val fetStatusText = buildString {
+                append("Charge: ")
+                append(if (chargeFET) "ON" else "OFF")
+                append(" | Discharge: ")
+                append(if (dischargeFET) "ON" else "OFF")
+            }
+            tvFetStatus.text = fetStatusText
         }
     }
 
@@ -645,7 +680,7 @@ class MeterActivity : AppCompatActivity() {
         private var temperature = 0.0
         
         private val casePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.parseColor("#E5E7EB") // Light gray for case
+            color = Color.parseColor("#E5E7EB")
             style = Paint.Style.FILL
         }
         
@@ -677,42 +712,36 @@ class MeterActivity : AppCompatActivity() {
             val height = height.toFloat()
             val centerX = width / 2
             
-            // تنظیمات جدید برای نمایش بهتر
             val tubeWidth = width * 0.2f
             val tubeLeft = centerX - tubeWidth / 2
             val tubeRight = centerX + tubeWidth / 2
-            val tubeTop = height * 0.1f  // شروع از بالاتر
-            val tubeBottom = height * 0.75f // پایان بالاتر برای فضای بیشتر برای bulb
+            val tubeTop = height * 0.1f
+            val tubeBottom = height * 0.75f
             val tubeHeight = tubeBottom - tubeTop
             
-            // Draw outer case
             canvas.drawRoundRect(
                 tubeLeft, tubeTop, tubeRight, tubeBottom, 
                 tubeWidth / 3, tubeWidth / 3, casePaint
             )
             
-            // Draw bulb at bottom - با فاصله از پایین
             val bulbRadius = tubeWidth * 1f
-            val bulbCenterY = height - bulbRadius * 1f // موقعیت bulb از پایین
+            val bulbCenterY = height - bulbRadius * 1f
             
             canvas.drawCircle(centerX, bulbCenterY, bulbRadius, bulbPaint)
             
-            // Calculate mercury level based on temperature (0°C to 90°C range)
             val minTemp = 0
             val maxTemp = 90.0
             val normalizedTemp = (temperature - minTemp) / (maxTemp - minTemp)
             val mercuryLevel = tubeBottom - (tubeHeight * normalizedTemp.toFloat().coerceIn(0f, 1f))
             
-            // Update mercury color based on temperature
             mercuryPaint.color = when {
-                temperature < 15 -> Color.parseColor("#25AFFF") // Light blue for cold
-                temperature > 45 -> Color.parseColor("#DC2626") // Bright red for hot
-                else -> Color.parseColor("#25AFFF") // Light blue
+                temperature < 15 -> Color.parseColor("#25AFFF")
+                temperature > 45 -> Color.parseColor("#DC2626")
+                else -> Color.parseColor("#25AFFF")
             }
             
             bulbPaint.color = mercuryPaint.color
             
-            // Draw mercury column - فقط تا بالای bulb
             val mercuryWidth = tubeWidth * 0.5f
             val mercuryLeft = centerX - mercuryWidth / 2
             val mercuryRight = centerX + mercuryWidth / 2
@@ -724,7 +753,6 @@ class MeterActivity : AppCompatActivity() {
                 mercuryWidth / 2, mercuryWidth / 2, mercuryPaint
             )
             
-            // Draw scale marks
             val scaleCount = 5
             for (i in 1 until scaleCount) {
                 val markY = tubeTop + (tubeHeight * i / (scaleCount - 1))
@@ -734,7 +762,6 @@ class MeterActivity : AppCompatActivity() {
                 )
             }
             
-            // Draw connecting line between tube and bulb
             val connectorWidth = tubeWidth * 0.4f
             val connectorLeft = centerX - connectorWidth / 2
             val connectorRight = centerX + connectorWidth / 2
@@ -751,11 +778,10 @@ class MeterActivity : AppCompatActivity() {
         private var pct = 0
         private var label = "SOC"
 
-        // radius shrink factor (B1)
         private val radiusScale = 0.75f
 
         private val track = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.parseColor("#E5E7EB") // gray-200
+            color = Color.parseColor("#E5E7EB")
             style = Paint.Style.STROKE
             strokeWidth = 30f
             strokeCap = Paint.Cap.ROUND
@@ -776,29 +802,26 @@ class MeterActivity : AppCompatActivity() {
             strokeWidth = 6f
         }
         private val pointer = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.parseColor("#EF4444") // bright red
+            color = Color.parseColor("#EF4444")
             style = Paint.Style.FILL
         }
-        // Glowing red shadow paint for pointer
         private val pointerGlow = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.parseColor("#80EF4444") // semi-transparent red
+            color = Color.parseColor("#80EF4444")
             style = Paint.Style.FILL
-            setShadowLayer(25f, 0f, 0f, Color.parseColor("#FFEF4444")) // Strong red glow
+            setShadowLayer(25f, 0f, 0f, Color.parseColor("#FFEF4444"))
         }
-        // SOC text — bigger and blue, drawn upper-middle with extra gap
         private val socPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.parseColor("#2563EB") // blue
+            color = Color.parseColor("#2563EB")
             textAlign = Paint.Align.LEFT
             textSize = 54f
             typeface = Typeface.create(Typeface.DEFAULT_BOLD, Typeface.BOLD)
         }
         private val pctPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.parseColor("#2563EB") // blue
+            color = Color.parseColor("#2563EB")
             textAlign = Paint.Align.LEFT
             textSize = 54f
             typeface = Typeface.create(Typeface.DEFAULT_BOLD, Typeface.BOLD)
         }
-        // Arc labels — large
         private val textLabel = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.parseColor("#374151")
             textAlign = Paint.Align.CENTER
@@ -826,51 +849,39 @@ class MeterActivity : AppCompatActivity() {
                 (w + size) / 2f, pad + (baseSize - size) / 2f + size
             )
 
-            // A1: sweep 180°, start at left horizon (180°), clockwise
             val startAngle = 180f
             val sweepTotal = 180f
 
-            // track
             c.drawArc(rect, startAngle, sweepTotal, false, track)
 
-            // ticks (bold at 0/50/100, thin each 10%)
             drawTicks(c, rect, startAngle, sweepTotal)
 
-            // progress color based on SOC - using pure solid colors
             val levelColor = when {
-                pct < 15 -> Color.RED // Pure red
-                pct < 30 -> Color.YELLOW // Pure yellow
-                pct <= 80 -> Color.GREEN // Pure green
-                else -> Color.BLUE // Pure blue
+                pct < 15 -> Color.RED
+                pct < 30 -> Color.YELLOW
+                pct <= 80 -> Color.GREEN
+                else -> Color.BLUE
             }
             
-            // Use solid color without gradient
             progress.color = levelColor
             progress.shader = null
 
             val sweep = sweepTotal * (pct / 100f)
             c.drawArc(rect, startAngle, sweep, false, progress)
 
-            // Enable shadow layer for glowing red effect
             setLayerType(LAYER_TYPE_SOFTWARE, pointerGlow)
-            
-            // pointer with glowing red shadow
             drawPointer(c, rect, startAngle + sweep)
-
-            // Disable shadow layer after drawing pointer
             setLayerType(LAYER_TYPE_HARDWARE, null)
 
-            // labels at 0/25/50/75/100
             drawLabels(c, rect, startAngle, sweepTotal)
 
-            // SOC text in upper-middle: draw "SOC" and "<pct>%" with extra gap, centered
-            val gap = 44f // extra spacing
+            val gap = 44f
             val socText = label
             val pctText = "$pct%"
             val socW = socPaint.measureText(socText)
             val pctW = pctPaint.measureText(pctText)
             val totalW = socW + gap + pctW
-            val y = rect.centerY() - rect.height()*0.18f  // upper placement
+            val y = rect.centerY() - rect.height()*0.18f
             val startX = (w - totalW) / 2f
             val fm = socPaint.fontMetrics
             val baseline = y - (fm.ascent + fm.descent)/2f
@@ -930,10 +941,7 @@ class MeterActivity : AppCompatActivity() {
             path.lineTo(b2x, b2y)
             path.close()
             
-            // Draw glowing red shadow (same path, but the shadow layer creates the glow)
             c.drawPath(path, pointerGlow)
-            
-            // Then draw the bright red pointer on top
             c.drawPath(path, pointer)
             c.drawCircle(cx, cy, 12f, pointer)
         }
