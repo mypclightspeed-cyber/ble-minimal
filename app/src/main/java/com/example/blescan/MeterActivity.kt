@@ -604,7 +604,7 @@ class MeterActivity : AppCompatActivity() {
         }
     }
 
-    // payload: voltage(2) current(2s) ... soc (byte) at offset 19, FET status at offset 0x13
+    // payload: voltage(2) current(2s) ... soc (byte) at offset 19, FET status at correct offset
     private fun handleBasicInfo(p: ByteArray) {
         if (p.size < 24) return
         val vRaw = ((p[0].toInt() and 0xFF) shl 8) or (p[1].toInt() and 0xFF)
@@ -615,12 +615,19 @@ class MeterActivity : AppCompatActivity() {
         val current = iRaw / 100.0
         val soc = p[19].toInt() and 0xFF
 
-        // Read FET status from byte offset 0x13 (19 in decimal)
-        val fetStatusByte = p[19].toInt() and 0xFF
+        // Correct FET status parsing according to JBD protocol
+        // FET status is typically at byte 20 (0x14) in basic info response
+        val fetStatusByte = if (p.size > 20) p[20].toInt() and 0xFF else 0
         
-        // Extract FET status bits according to JBD register map
-        val chargeFET = (fetStatusByte and 0x01) != 0  // bit 0: charge FET
-        val dischargeFET = (fetStatusByte and 0x02) != 0 // bit 1: discharge FET
+        // Extract FET status bits according to JBD protocol specification
+        // Bit 0: Charge MOSFET status (1=ON, 0=OFF)
+        // Bit 1: Discharge MOSFET status (1=ON, 0=OFF) 
+        // Bit 2: Charge current limit status
+        // Bit 3: Discharge current limit status
+        val chargeFET = (fetStatusByte and 0x01) != 0
+        val dischargeFET = (fetStatusByte and 0x02) != 0
+        val chargeCurrentLimit = (fetStatusByte and 0x04) != 0
+        val dischargeCurrentLimit = (fetStatusByte and 0x08) != 0
 
         // Temperature extraction per JBD (0x03) with null fallback
         val dataStart = 4
@@ -645,12 +652,19 @@ class MeterActivity : AppCompatActivity() {
             tvTemp.text = tempText
             thermometerView.setTemperature(tempValue)
             
-            // Update FET status display
+            // Update FET status display with more detailed information
             val fetStatusText = buildString {
                 append("Charge: ")
                 append(if (chargeFET) "ON" else "OFF")
                 append(" | Discharge: ")
                 append(if (dischargeFET) "ON" else "OFF")
+                
+                // Optionally show current limit status if needed
+                if (chargeCurrentLimit || dischargeCurrentLimit) {
+                    append("\nLimits: ")
+                    if (chargeCurrentLimit) append("Chg ")
+                    if (dischargeCurrentLimit) append("Dischg")
+                }
             }
             tvFetStatus.text = fetStatusText
         }
