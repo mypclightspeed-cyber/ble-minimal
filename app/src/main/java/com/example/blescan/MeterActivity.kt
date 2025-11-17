@@ -34,38 +34,26 @@ class MeterActivity : AppCompatActivity() {
     private val AMITIS_WRITE_CH = uuid("0000ff02")  // write
     private val CMD_BASIC_INFO = hex("DD A5 03 00 FF FD 77")
     
-    // ========== CORRECTED FACTORY MODE & UNDER VOLTAGE PROTECTION COMMANDS ==========
-    // Based on verified JBD BMS protocol from OverkillSolarBMS documentation
+    // CORRECTED BLE Commands based on JBD BMS BLE implementation
+    private val CMD_FET_FORCE_ON = hex("DD 5A E1 02 00 00 FF 1D 77")  // Your working FET command
     
-    // === FACTORY MODE CONTROL ===
-    // Register 0x00: Factory Mode Entry
-    // Command: Write 0x56 0x78 to register 0x00 to enter factory mode
-    // This unlocks access to EEPROM settings
-    private val CMD_FACTORY_MODE_ENTER = hex("DD 5A 00 02 56 78 88 77")  // Enter factory mode
+    // Factory mode commands for BLE
+    private val CMD_ENTER_FACTORY_MODE = hex("DD 5A 00 00 02 56 78 22 77")  // Enter factory mode
+    private val CMD_EXIT_FACTORY_MODE = hex("DD 5A 00 00 02 55 AA 8B 77")   // Exit factory mode
     
-    // === CORRECT REGISTER ADDRESSES FOR UNDER VOLTAGE PROTECTION ===
-    // According to verified JBD register map:
-    // Register 0x8A: Cell Under Voltage Protection (UVP) threshold - in mV per cell
-    // Register 0x8B: Cell Under Voltage Protection Release (UVPR) - in mV per cell
-    // Register 0x89: Pack Under Voltage (not typically modified, but included for reference)
+    // CORRECTED Voltage settings for BLE
+    // Cell low voltage cutoff - Register 0xE007
+    private val CMD_SET_LOW_VOLTAGE_2V = hex("DD 5A E0 07 02 D0 07 1E 77") // 2.00V = 2000mV = 0x07D0
     
-    // Cell UVP Settings (Register 0x8A) - Cutoff voltage per cell
-    // Format: 2 bytes, little-endian, mV per cell
-    // 2.5V = 2500mV = 0x09C4 → bytes: C4 09 (little-endian)
-    private val CMD_SET_CELL_UVP_2_5V = byteArrayOf(0xDD.toByte(), 0x5A.toByte(), 0x8A.toByte(), 0x02.toByte(), 0xC4.toByte(), 0x09.toByte(), 0x6E.toByte(), 0x77.toByte())
-    private val CMD_SET_CELL_UVP_2_0V = byteArrayOf(0xDD.toByte(), 0x5A.toByte(), 0x8A.toByte(), 0x02.toByte(), 0xD0.toByte(), 0x07.toByte(), 0x6E.toByte(), 0x77.toByte())
-    private val CMD_SET_CELL_UVP_1_8V = byteArrayOf(0xDD.toByte(), 0x5A.toByte(), 0x8A.toByte(), 0x02.toByte(), 0x08.toByte(), 0x07.toByte(), 0x6E.toByte(), 0x77.toByte())
-    
-    // Cell UVPR Settings (Register 0x8B) - Recovery voltage per cell
-    // 2.75V = 2750mV = 0x0AB6 → bytes: B6 0A (little-endian)
-    // 3.0V = 3000mV = 0x0BB8 → bytes: B8 0B (little-endian)
-    // 2.2V = 2200mV = 0x0898 → bytes: 98 08 (little-endian)
-    private val CMD_SET_CELL_UVPR_2_75V = byteArrayOf(0xDD.toByte(), 0x5A.toByte(), 0x8B.toByte(), 0x02.toByte(), 0xB6.toByte(), 0x0A.toByte(), 0x6C.toByte(), 0x77.toByte())
-    private val CMD_SET_CELL_UVPR_3_0V = byteArrayOf(0xDD.toByte(), 0x5A.toByte(), 0x8B.toByte(), 0x02.toByte(), 0xB8.toByte(), 0x0B.toByte(), 0x6C.toByte(), 0x77.toByte())
-    private val CMD_SET_CELL_UVPR_2_2V = byteArrayOf(0xDD.toByte(), 0x5A.toByte(), 0x8B.toByte(), 0x02.toByte(), 0x98.toByte(), 0x08.toByte(), 0x6C.toByte(), 0x77.toByte())
-    
-    // Force both FETs ON
-    private val CMD_FET_FORCE_ON = hex("DD 5A E1 02 00 00 FF 1D 77")
+    // Pack voltage settings - Register 0xE001 (cutoff) and 0xE002 (release)
+    private val CMD_SET_PACK_LOW_VOLTAGE_16V = hex("DD 5A E0 01 02 40 3E 9C 77") // 16.0V = 16000mV
+    private val CMD_SET_PACK_LOW_VOLTAGE_RELEASE_16_8V = hex("DD 5A E0 02 02 80 41 1B 77") // 16.8V = 16800mV
+    private val CMD_SET_PACK_LOW_VOLTAGE_21_7V = hex("DD 5A E0 01 02 90 54 0B 77") // 21.7V = 21700mV
+    private val CMD_SET_PACK_LOW_VOLTAGE_RELEASE_22_4V = hex("DD 5A E0 02 02 60 57 6A 77") // 22.4V = 22400mV
+
+    // Add delay constants for proper BLE timing
+    private val BLE_COMMAND_DELAY = 500L
+    private val FACTORY_MODE_DELAY = 1000L
 
     private fun cmdReadRegister(reg: Int): ByteArray {
         val r = reg and 0xFF
@@ -74,39 +62,6 @@ class MeterActivity : AppCompatActivity() {
             0xDD.toByte(), 0xA5.toByte(), r.toByte(), 0x00,
             ((chk shr 8) and 0xFF).toByte(), (chk and 0xFF).toByte(), 0x77.toByte()
         )
-    }
-
-    /**
-     * Creates a write command with proper checksum calculation per JBD protocol
-     * Checksum = 0x10000 - (register + length + sum(data bytes))
-     * @param register EEPROM register address
-     * @param data Data bytes to write (little-endian format for multi-byte values)
-     * @return Complete command with checksum
-     */
-    private fun cmdWriteRegister(register: Int, data: ByteArray): ByteArray {
-        val reg = register and 0xFF
-        val len = data.size and 0xFF
-        
-        // Calculate checksum: sum of (register + length + data)
-        var sum = (reg + len) and 0xFFFF
-        for (b in data) {
-            sum = (sum + (b.toInt() and 0xFF)) and 0xFFFF
-        }
-        val checksum = (0x10000 - sum) and 0xFFFF
-        
-        val cmd = ByteArray(7 + data.size)
-        cmd[0] = 0xDD.toByte()
-        cmd[1] = 0x5A.toByte()  // Write command
-        cmd[2] = reg.toByte()
-        cmd[3] = len.toByte()
-        for (i in data.indices) {
-            cmd[4 + i] = data[i]
-        }
-        cmd[4 + data.size] = ((checksum shr 8) and 0xFF).toByte()
-        cmd[5 + data.size] = (checksum and 0xFF).toByte()
-        cmd[6 + data.size] = 0x77.toByte()
-        
-        return cmd
     }
 
     // --- UI ---
@@ -122,7 +77,6 @@ class MeterActivity : AppCompatActivity() {
     private lateinit var tvFetStatus: TextView
     private lateinit var thermometerView: ThermometerView
     private lateinit var fetSwitch: Switch
-    private lateinit var btnSetUnderVoltage: Button
 
     private lateinit var adapterLv: ArrayAdapter<String>
     private val rows = mutableListOf<String>()
@@ -140,11 +94,14 @@ class MeterActivity : AppCompatActivity() {
     private var chWrite: BluetoothGattCharacteristic? = null
     private val rxBuffer = ArrayList<Byte>()
 
+    // Track status
     private var lastFetStatus: String = ""
     private var lastChargeFET: Boolean = false
     private var lastDischargeFET: Boolean = false
+    private var isTemporaryLowVoltageMode = false
     private var isInFactoryMode = false
 
+    // periodic polling while connected
     private val pollIntervalMs = 1000L
     private val pollTask = object : Runnable {
         override fun run() {
@@ -227,6 +184,7 @@ class MeterActivity : AppCompatActivity() {
             return card to valueTv
         }
 
+        // Create thermometer card with custom layout
         fun makeThermometerCard(): Pair<LinearLayout, Pair<TextView, ThermometerView>> {
             val card = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
@@ -274,6 +232,7 @@ class MeterActivity : AppCompatActivity() {
             return card to (valueTv to thermometer)
         }
 
+        // Create FET status card with switch
         fun makeFetStatusCard(): Pair<LinearLayout, Pair<TextView, Switch>> {
             val card = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
@@ -355,17 +314,6 @@ class MeterActivity : AppCompatActivity() {
         tvFetStatus = fetPair.first
         fetSwitch = fetPair.second
 
-        btnSetUnderVoltage = Button(this).apply {
-            text = "Configure Under Voltage Protection"
-            setBackgroundColor(Color.parseColor("#DC2626"))
-            setTextColor(Color.WHITE)
-            val lp = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
-            )
-            lp.setMargins(16, 10, 16, 10)
-            layoutParams = lp
-        }
-
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(12, 12, 12, 12)
@@ -380,7 +328,6 @@ class MeterActivity : AppCompatActivity() {
             addView(cardCurr)
             addView(cardTemp)
             addView(cardFet)
-            addView(btnSetUnderVoltage)
         }
         setContentView(root)
 
@@ -403,17 +350,14 @@ class MeterActivity : AppCompatActivity() {
             connectTo(dev)
         }
 
-        btnSetUnderVoltage.setOnClickListener {
-            showUnderVoltageDialog()
-        }
-
+        // Set up FET switch listener
         fetSwitch.setOnCheckedChangeListener { _, isChecked ->
             if (isChecked) {
                 AlertDialog.Builder(this)
-                    .setTitle("Force FETs ON")
-                    .setMessage("This will force both FETs ON for discharging.\n\nWARNING: Use with caution!")
+                    .setTitle("Force FETs ON with Voltage Settings")
+                    .setMessage("This will:\n1. Enter factory mode\n2. Set cell low voltage cutoff to 2.00V\n3. Set pack voltage: 16.0V cutoff, 16.8V release\n4. Force both FETs ON\n5. Exit factory mode\n6. Revert to normal voltages after 20s\n\nWARNING: Low voltages may damage cells!")
                     .setPositiveButton("Proceed") { _, _ ->
-                        forceFetsOn()
+                        setVoltagesAndForceFets()
                     }
                     .setNegativeButton("Cancel") { _, _ ->
                         fetSwitch.isChecked = false
@@ -425,240 +369,139 @@ class MeterActivity : AppCompatActivity() {
         }
     }
 
-    /**
-     * Show dialog for under voltage protection configuration
-     */
-    private fun showUnderVoltageDialog() {
-        if (gatt == null || chWrite == null) {
-            toast("Not connected to BMS")
-            return
-        }
-
-        val options = arrayOf(
-            "Standard (2.5V cutoff, 2.75V recovery)",
-            "Conservative (2.0V cutoff, 2.2V recovery)",
-            "Aggressive (2.0V cutoff, 2.75V recovery)",
-            "Emergency (1.8V cutoff, 2.2V recovery)"
-        )
-
-        AlertDialog.Builder(this)
-            .setTitle("Select Under Voltage Protection Profile")
-            .setItems(options) { _, which ->
-                when (which) {
-                    0 -> setUnderVoltageStandard()
-                    1 -> setUnderVoltageConservative()
-                    2 -> setUnderVoltageAggressive()
-                    3 -> setUnderVoltageEmergency()
-                }
-            }
-            .setNegativeButton("Cancel", null)
-            .show()
-    }
-
-    /**
-     * Standard profile: 2.5V cutoff, 2.75V recovery
-     * Flow: Enter Factory Mode → Set UVP → Set UVPR → Exit Factory Mode
-     */
-    private fun setUnderVoltageStandard() {
+    // Function to set all voltage settings and force FETs ON with proper BLE timing
+    private fun setVoltagesAndForceFets() {
         chWrite?.let { w ->
             gatt?.let { g ->
-                toast("Standard UVP: 2.5V cutoff, 2.75V recovery...")
+                isTemporaryLowVoltageMode = true
                 
-                // Step 1: Enter Factory Mode
+                // Step 1: Enter factory mode
+                toast("Entering factory mode...")
                 w.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
-                w.value = CMD_FACTORY_MODE_ENTER
+                w.value = CMD_ENTER_FACTORY_MODE
                 g.writeCharacteristic(w)
                 isInFactoryMode = true
                 
                 handler.postDelayed({
-                    // Step 2: Set Cell UVP to 2.5V (Register 0x8A)
+                    // Step 2: Set cell low voltage cutoff to 2.00V
+                    toast("Setting cell voltage to 2.00V...")
                     w.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
-                    w.value = CMD_SET_CELL_UVP_2_5V
+                    w.value = CMD_SET_LOW_VOLTAGE_2V
                     g.writeCharacteristic(w)
                     
                     handler.postDelayed({
-                        // Step 3: Set Cell UVPR to 2.75V (Register 0x8B)
+                        // Step 3: Set pack low voltage cutoff to 16.0V
+                        toast("Setting pack cutoff to 16.0V...")
                         w.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
-                        w.value = CMD_SET_CELL_UVPR_2_75V
+                        w.value = CMD_SET_PACK_LOW_VOLTAGE_16V
                         g.writeCharacteristic(w)
                         
                         handler.postDelayed({
-                            // Step 4: Exit Factory Mode (power cycle or send exit command if available)
-                            exitFactoryMode()
-                            toast("Standard UVP settings applied successfully!")
-                            isInFactoryMode = false
-                            queryCurrentSettings()
-                        }, 300)
-                    }, 300)
-                }, 300)
-            }
-        }
-    }
-
-    /**
-     * Conservative profile: 2.0V cutoff, 2.2V recovery
-     */
-    private fun setUnderVoltageConservative() {
-        chWrite?.let { w ->
-            gatt?.let { g ->
-                toast("Conservative UVP: 2.0V cutoff, 2.2V recovery...")
-                
-                w.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
-                w.value = CMD_FACTORY_MODE_ENTER
-                g.writeCharacteristic(w)
-                isInFactoryMode = true
-                
-                handler.postDelayed({
-                    w.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
-                    w.value = CMD_SET_CELL_UVP_2_0V
-                    g.writeCharacteristic(w)
-                    
-                    handler.postDelayed({
-                        w.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
-                        w.value = CMD_SET_CELL_UVPR_2_2V
-                        g.writeCharacteristic(w)
-                        
-                        handler.postDelayed({
-                            exitFactoryMode()
-                            toast("Conservative UVP settings applied!")
-                            isInFactoryMode = false
-                            queryCurrentSettings()
-                        }, 300)
-                    }, 300)
-                }, 300)
-            }
-        }
-    }
-
-    /**
-     * Aggressive profile: 2.0V cutoff, 2.75V recovery
-     */
-    private fun setUnderVoltageAggressive() {
-        chWrite?.let { w ->
-            gatt?.let { g ->
-                toast("Aggressive UVP: 2.0V cutoff, 2.75V recovery...")
-                
-                w.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
-                w.value = CMD_FACTORY_MODE_ENTER
-                g.writeCharacteristic(w)
-                isInFactoryMode = true
-                
-                handler.postDelayed({
-                    w.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
-                    w.value = CMD_SET_CELL_UVP_2_0V
-                    g.writeCharacteristic(w)
-                    
-                    handler.postDelayed({
-                        w.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
-                        w.value = CMD_SET_CELL_UVPR_2_75V
-                        g.writeCharacteristic(w)
-                        
-                        handler.postDelayed({
-                            exitFactoryMode()
-                            toast("Aggressive UVP settings applied!")
-                            isInFactoryMode = false
-                            queryCurrentSettings()
-                        }, 300)
-                    }, 300)
-                }, 300)
-            }
-        }
-    }
-
-    /**
-     * Emergency profile: 1.8V cutoff, 2.2V recovery
-     * ⚠️ WARNING: Can damage LiFePO4 cells
-     */
-    private fun setUnderVoltageEmergency() {
-        AlertDialog.Builder(this)
-            .setTitle("Emergency Profile")
-            .setMessage("⚠️ WARNING: 1.8V cutoff can DAMAGE LiFePO4 cells!\n\nThis should ONLY be used as a last resort for emergency discharge.\n\nProceed?")
-            .setPositiveButton("I Understand - Proceed") { _, _ ->
-                chWrite?.let { w ->
-                    gatt?.let { g ->
-                        toast("Emergency UVP: 1.8V cutoff, 2.2V recovery...")
-                        
-                        w.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
-                        w.value = CMD_FACTORY_MODE_ENTER
-                        g.writeCharacteristic(w)
-                        isInFactoryMode = true
-                        
-                        handler.postDelayed({
+                            // Step 4: Set pack low voltage release to 16.8V
+                            toast("Setting pack release to 16.8V...")
                             w.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
-                            w.value = CMD_SET_CELL_UVP_1_8V
+                            w.value = CMD_SET_PACK_LOW_VOLTAGE_RELEASE_16_8V
                             g.writeCharacteristic(w)
                             
                             handler.postDelayed({
+                                // Step 5: Exit factory mode
+                                toast("Exiting factory mode...")
                                 w.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
-                                w.value = CMD_SET_CELL_UVPR_2_2V
+                                w.value = CMD_EXIT_FACTORY_MODE
                                 g.writeCharacteristic(w)
+                                isInFactoryMode = false
                                 
                                 handler.postDelayed({
-                                    exitFactoryMode()
-                                    toast("Emergency UVP settings applied! ⚠️ Use with extreme caution!")
-                                    isInFactoryMode = false
-                                    queryCurrentSettings()
-                                }, 300)
-                            }, 300)
-                        }, 300)
-                    }
-                }
+                                    // Step 6: Force FETs ON
+                                    toast("Forcing both FETs ON...")
+                                    w.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
+                                    w.value = CMD_FET_FORCE_ON
+                                    g.writeCharacteristic(w)
+                                    
+                                    // Step 7: Schedule revert to normal voltages after 20 seconds
+                                    handler.postDelayed({
+                                        revertToNormalVoltages()
+                                    }, 20000)
+                                    
+                                    // Step 8: Update status
+                                    handler.postDelayed({
+                                        chWrite?.let { w2 ->
+                                            gatt?.let { g2 ->
+                                                w2.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
+                                                w2.value = CMD_BASIC_INFO
+                                                g2.writeCharacteristic(w2)
+                                            }
+                                        }
+                                    }, BLE_COMMAND_DELAY)
+                                    
+                                }, FACTORY_MODE_DELAY)
+                            }, BLE_COMMAND_DELAY)
+                        }, BLE_COMMAND_DELAY)
+                    }, BLE_COMMAND_DELAY)
+                }, FACTORY_MODE_DELAY)
+            } ?: run {
+                toast("Not connected to BMS")
+                fetSwitch.isChecked = false
+                isTemporaryLowVoltageMode = false
+                isInFactoryMode = false
             }
-            .setNegativeButton("Cancel", null)
-            .show()
-    }
-
-    /**
-     * Exit factory mode
-     * Note: Most JBD BMS implementations don't have explicit exit command
-     * Factory mode typically times out automatically or resets on next power cycle
-     * Some BMS may respond to: write 0xFF 0xFF to register 0x00
-     */
-    private fun exitFactoryMode() {
-        chWrite?.let { w ->
-            gatt?.let { g ->
-                // Send a benign command to reset BMS state
-                // This triggers BMS to save settings and exit configuration mode
-                toast("Saving settings and exiting factory mode...")
-                w.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
-                w.value = CMD_BASIC_INFO  // Query basic info to trigger state reset
-                g.writeCharacteristic(w)
-                
-                handler.postDelayed({
-                    toast("Factory mode exited. Settings saved.")
-                }, 500)
-            }
+        } ?: run {
+            toast("Not connected to BMS")
+            fetSwitch.isChecked = false
+            isTemporaryLowVoltageMode = false
+            isInFactoryMode = false
         }
     }
 
-    /**
-     * Force both FETs ON
-     */
-    private fun forceFetsOn() {
+    // Function to revert to normal voltage settings
+    private fun revertToNormalVoltages() {
         chWrite?.let { w ->
             gatt?.let { g ->
-                toast("Forcing both FETs ON...")
-                
+                // Step 1: Enter factory mode
+                toast("Entering factory mode to restore voltages...")
                 w.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
-                w.value = CMD_FET_FORCE_ON
+                w.value = CMD_ENTER_FACTORY_MODE
                 g.writeCharacteristic(w)
+                isInFactoryMode = true
                 
                 handler.postDelayed({
-                    queryCurrentSettings()
-                }, 500)
-            }
-        }
-    }
-
-    /**
-     * Query current BMS settings to verify configuration
-     */
-    private fun queryCurrentSettings() {
-        chWrite?.let { w ->
-            gatt?.let { g ->
-                w.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
-                w.value = CMD_BASIC_INFO
-                g.writeCharacteristic(w)
+                    // Step 2: Set pack low voltage cutoff to 21.7V
+                    toast("Restoring pack cutoff to 21.7V...")
+                    w.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
+                    w.value = CMD_SET_PACK_LOW_VOLTAGE_21_7V
+                    g.writeCharacteristic(w)
+                    
+                    handler.postDelayed({
+                        // Step 3: Set pack low voltage release to 22.4V
+                        toast("Restoring pack release to 22.4V...")
+                        w.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
+                        w.value = CMD_SET_PACK_LOW_VOLTAGE_RELEASE_22_4V
+                        g.writeCharacteristic(w)
+                        
+                        handler.postDelayed({
+                            // Step 4: Exit factory mode
+                            toast("Exiting factory mode...")
+                            w.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
+                            w.value = CMD_EXIT_FACTORY_MODE
+                            g.writeCharacteristic(w)
+                            isInFactoryMode = false
+                            
+                            // Step 5: Update status
+                            handler.postDelayed({
+                                chWrite?.let { w2 ->
+                                    gatt?.let { g2 ->
+                                        w2.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
+                                        w2.value = CMD_BASIC_INFO
+                                        g2.writeCharacteristic(w2)
+                                    }
+                                }
+                                isTemporaryLowVoltageMode = false
+                                toast("Normal voltage settings restored")
+                            }, BLE_COMMAND_DELAY)
+                            
+                        }, FACTORY_MODE_DELAY)
+                    }, BLE_COMMAND_DELAY)
+                }, FACTORY_MODE_DELAY)
             }
         }
     }
@@ -824,6 +667,7 @@ class MeterActivity : AppCompatActivity() {
             return
         }
 
+        // reset on each new scan
         devices.clear(); rows.clear(); adapterLv.clear(); advertisedName.clear()
         gauge.setPercent(0)
         tvVolt.text = "-"
@@ -836,6 +680,7 @@ class MeterActivity : AppCompatActivity() {
         lastFetStatus = ""
         lastChargeFET = false
         lastDischargeFET = false
+        isTemporaryLowVoltageMode = false
         isInFactoryMode = false
 
         scanning = true
@@ -877,6 +722,7 @@ class MeterActivity : AppCompatActivity() {
         
         toast("Connecting to ${device.address}...")
         
+        // Reset UI values when connecting to new device
         gauge.setPercent(0)
         tvVolt.text = "-"
         tvCurr.text = "-"
@@ -887,6 +733,7 @@ class MeterActivity : AppCompatActivity() {
         lastFetStatus = ""
         lastChargeFET = false
         lastDischargeFET = false
+        isTemporaryLowVoltageMode = false
         isInFactoryMode = false
         
         gatt = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M)
@@ -896,11 +743,22 @@ class MeterActivity : AppCompatActivity() {
     }
 
     private fun disconnectFromCurrentDevice() {
+        // Ensure we exit factory mode before disconnecting
+        if (isInFactoryMode) {
+            chWrite?.let { w ->
+                gatt?.let { g ->
+                    w.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
+                    w.value = CMD_EXIT_FACTORY_MODE
+                    g.writeCharacteristic(w)
+                }
+            }
+            isInFactoryMode = false
+        }
+        
         handler.removeCallbacks(pollTask)
         chNotify = null
         chWrite = null
         rxBuffer.clear()
-        isInFactoryMode = false
         
         gatt?.let { g ->
             try {
@@ -930,7 +788,6 @@ class MeterActivity : AppCompatActivity() {
                 rxBuffer.clear()
                 g.close()
                 gatt = null
-                isInFactoryMode = false
                 
                 runOnUiThread {
                     fetSwitch.isChecked = false
@@ -965,6 +822,7 @@ class MeterActivity : AppCompatActivity() {
                     g.writeDescriptor(cccd)
                 }
             }
+            // start continuous polling
             handler.removeCallbacks(pollTask)
             handler.postDelayed(pollTask, 500)
             chWrite?.let { w ->
@@ -1012,6 +870,7 @@ class MeterActivity : AppCompatActivity() {
         }
     }
 
+    // payload: voltage(2) current(2s) ... soc (byte) at offset 19, FET status at correct offset
     private fun handleBasicInfo(p: ByteArray) {
         if (p.size < 24) return
         val vRaw = ((p[0].toInt() and 0xFF) shl 8) or (p[1].toInt() and 0xFF)
@@ -1022,13 +881,21 @@ class MeterActivity : AppCompatActivity() {
         val current = iRaw / 100.0
         val soc = p[19].toInt() and 0xFF
 
+        // Correct FET status parsing according to JBD protocol
+        // FET status is typically at byte 20 (0x14) in basic info response
         val fetStatusByte = if (p.size > 20) p[20].toInt() and 0xFF else 0
         
+        // Extract FET status bits according to JBD protocol specification
+        // Bit 0: Charge MOSFET status (1=ON, 0=OFF)
+        // Bit 1: Discharge MOSFET status (1=ON, 0=OFF) 
+        // Bit 2: Charge current limit status
+        // Bit 3: Discharge current limit status
         val chargeFET = (fetStatusByte and 0x01) != 0
         val dischargeFET = (fetStatusByte and 0x02) != 0
         val chargeCurrentLimit = (fetStatusByte and 0x04) != 0
         val dischargeCurrentLimit = (fetStatusByte and 0x08) != 0
 
+        // Temperature extraction per JBD (0x03) with null fallback
         val dataStart = 4
         var tempValue = 0.0
         var tempText = "-"
@@ -1051,13 +918,18 @@ class MeterActivity : AppCompatActivity() {
             tvTemp.text = tempText
             thermometerView.setTemperature(tempValue)
             
-            val factoryModeStatus = if (isInFactoryMode) " (Factory Mode)" else ""
+            // Update FET status display with more detailed information
+            val modeStatus = when {
+                isInFactoryMode -> " (Factory Mode)"
+                isTemporaryLowVoltageMode -> " (Low Voltage Mode)"
+                else -> ""
+            }
             val fetStatusText = buildString {
                 append("Charge: ")
                 append(if (chargeFET) "ON" else "OFF")
                 append(" | Discharge: ")
                 append(if (dischargeFET) "ON" else "OFF")
-                append(factoryModeStatus)
+                append(modeStatus)
                 
                 if (chargeCurrentLimit || dischargeCurrentLimit) {
                     append("\nLimits: ")
@@ -1071,6 +943,14 @@ class MeterActivity : AppCompatActivity() {
                 lastFetStatus = fetStatusText
                 lastChargeFET = chargeFET
                 lastDischargeFET = dischargeFET
+                
+                if (chargeFET && dischargeFET) {
+                    // Switch remains checked if user manually set it
+                } else {
+                    if (fetSwitch.isChecked) {
+                        // Don't automatically uncheck - let user decide
+                    }
+                }
             }
         }
     }
@@ -1088,6 +968,16 @@ class MeterActivity : AppCompatActivity() {
     }
     private fun toast(msg: String) = Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
     override fun onDestroy() {
+        if (isInFactoryMode) {
+            chWrite?.let { w ->
+                gatt?.let { g ->
+                    w.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
+                    w.value = CMD_EXIT_FACTORY_MODE
+                    g.writeCharacteristic(w)
+                }
+            }
+        }
+        
         stopScan()
         handler.removeCallbacks(pollTask)
         disconnectFromCurrentDevice()
