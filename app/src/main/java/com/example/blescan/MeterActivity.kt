@@ -13,13 +13,14 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
+import android.util.Log
 import android.view.View
 import android.widget.*
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
-import java.util.UUID
+import java.util.*
 import kotlin.math.*
 
 class MeterActivity : AppCompatActivity() {
@@ -34,34 +35,74 @@ class MeterActivity : AppCompatActivity() {
     private val AMITIS_WRITE_CH = uuid("0000ff02")  // write
     private val CMD_BASIC_INFO = hex("DD A5 03 00 FF FD 77")
     
-    // CORRECTED BLE Commands based on JBD BMS BLE implementation
-    private val CMD_FET_FORCE_ON = hex("DD 5A E1 02 00 00 FF 1D 77")  // Your working FET command
-    
-    // Factory mode commands for BLE
-    private val CMD_ENTER_FACTORY_MODE = hex("DD 5A 00 00 02 56 78 22 77")  // Enter factory mode
-    private val CMD_EXIT_FACTORY_MODE = hex("DD 5A 00 00 02 55 AA 8B 77")   // Exit factory mode
-    
-    // CORRECTED Voltage settings for BLE
-    // Cell low voltage cutoff - Register 0xE007
-    private val CMD_SET_LOW_VOLTAGE_2V = hex("DD 5A E0 07 02 D0 07 1E 77") // 2.00V = 2000mV = 0x07D0
-    
-    // Pack voltage settings - Register 0xE001 (cutoff) and 0xE002 (release)
-    private val CMD_SET_PACK_LOW_VOLTAGE_16V = hex("DD 5A E0 01 02 40 3E 9C 77") // 16.0V = 16000mV
-    private val CMD_SET_PACK_LOW_VOLTAGE_RELEASE_16_8V = hex("DD 5A E0 02 02 80 41 1B 77") // 16.8V = 16800mV
-    private val CMD_SET_PACK_LOW_VOLTAGE_21_7V = hex("DD 5A E0 01 02 90 54 0B 77") // 21.7V = 21700mV
-    private val CMD_SET_PACK_LOW_VOLTAGE_RELEASE_22_4V = hex("DD 5A E0 02 02 60 57 6A 77") // 22.4V = 22400mV
+    // JBD Protocol Constants
+    private val JBD_START: Byte = 0xDD.toByte()
+    private val JBD_END: Byte = 0x77.toByte()
+    private val JBD_READ: Byte = 0xA5.toByte()
+    private val JBD_WRITE: Byte = 0x5A.toByte()
 
-    // Add delay constants for proper BLE timing
-    private val BLE_COMMAND_DELAY = 500L
-    private val FACTORY_MODE_DELAY = 1000L
+    // CORRECTED BLE Commands based on JBD BMS protocol
+    private val CMD_FET_FORCE_ON = hex("DD 5A E1 02 00 00 FF 1D 77")
+    
+    // CORRECTED Factory mode commands for BLE (using proper JBD protocol)
+    private val CMD_ENTER_FACTORY_MODE = createJbdCommand(0x00, hex("56 78"), false)
+    private val CMD_EXIT_FACTORY_MODE = createJbdCommand(0x01, hex("28 28"), false)
+    
+    // CORRECTED Voltage settings using proper JBD protocol
+    // Cell voltage protection settings (Registers 0x24-0x27)
+    private val CMD_SET_CELL_OVP_4_2V = createJbdCommand(0x24, intToBytes(4200), false)  // 4.20V = 4200mV
+    private val CMD_SET_CELL_OVP_RELEASE_4_1V = createJbdCommand(0x25, intToBytes(4100), false)  // 4.10V
+    private val CMD_SET_CELL_UVP_2_8V = createJbdCommand(0x26, intToBytes(2800), false)  // 2.80V
+    private val CMD_SET_CELL_UVP_RELEASE_3_0V = createJbdCommand(0x27, intToBytes(3000), false)  // 3.00V
+    
+    // Pack voltage protection settings (Registers 0x20-0x23)
+    private val CMD_SET_PACK_OVP_16_8V = createJbdCommand(0x20, intToBytes(16800), false)  // 16.8V = 16800mV
+    private val CMD_SET_PACK_OVP_RELEASE_16_5V = createJbdCommand(0x21, intToBytes(16500), false)  // 16.5V
+    private val CMD_SET_PACK_UVP_12_0V = createJbdCommand(0x22, intToBytes(12000), false)  // 12.0V
+    private val CMD_SET_PACK_UVP_RELEASE_12_5V = createJbdCommand(0x23, intToBytes(12500), false)  // 12.5V
+
+    // Temperature settings (Registers 0x18-0x1F) - in deciKelvin
+    private val CMD_SET_CHG_OT_45C = createJbdCommand(0x18, intToBytes(celsiusToDeciKelvin(45)), false)
+    private val CMD_SET_CHG_OT_RELEASE_40C = createJbdCommand(0x19, intToBytes(celsiusToDeciKelvin(40)), false)
+    private val CMD_SET_CHG_UT_0C = createJbdCommand(0x1A, intToBytes(celsiusToDeciKelvin(0)), false)
+    private val CMD_SET_CHG_UT_RELEASE_5C = createJbdCommand(0x1B, intToBytes(celsiusToDeciKelvin(5)), false)
+
+    // Add delay constants for proper BLE timing (INCREASED TIMES)
+    private val BLE_COMMAND_DELAY = 1000L
+    private val FACTORY_MODE_DELAY = 2000L
+    private val SETTINGS_WRITE_DELAY = 1500L
+    private val RESPONSE_TIMEOUT = 5000L
+
+    // JBD Protocol Helper Functions
+    private fun calculateJbdChecksum(data: ByteArray): Int {
+        return (0x10000 - data.sum()) and 0xFFFF
+    }
+
+    private fun createJbdCommand(register: Int, data: ByteArray = byteArrayOf(), read: Boolean = true): ByteArray {
+        val command = if (read) JBD_READ else JBD_WRITE
+        val payload = byteArrayOf(register.toByte(), data.size.toByte()) + data
+        val checksum = calculateJbdChecksum(payload)
+        
+        return byteArrayOf(JBD_START, command) + payload + byteArrayOf(
+            ((checksum shr 8) and 0xFF).toByte(),
+            (checksum and 0xFF).toByte(),
+            JBD_END
+        )
+    }
+
+    private fun intToBytes(value: Int): ByteArray {
+        return byteArrayOf(
+            ((value shr 8) and 0xFF).toByte(),
+            (value and 0xFF).toByte()
+        )
+    }
+
+    private fun celsiusToDeciKelvin(celsius: Int): Int {
+        return ((celsius + 273.15) * 10).toInt()
+    }
 
     private fun cmdReadRegister(reg: Int): ByteArray {
-        val r = reg and 0xFF
-        val chk = (0x10000 - (r + 0)) and 0xFFFF
-        return byteArrayOf(
-            0xDD.toByte(), 0xA5.toByte(), r.toByte(), 0x00,
-            ((chk shr 8) and 0xFF).toByte(), (chk and 0xFF).toByte(), 0x77.toByte()
-        )
+        return createJbdCommand(reg, byteArrayOf(), true)
     }
 
     // --- UI ---
@@ -77,6 +118,10 @@ class MeterActivity : AppCompatActivity() {
     private lateinit var tvFetStatus: TextView
     private lateinit var thermometerView: ThermometerView
     private lateinit var fetSwitch: Switch
+
+    // Add debug TextView
+    private lateinit var tvDebug: TextView
+    private lateinit var debugScrollView: ScrollView
 
     private lateinit var adapterLv: ArrayAdapter<String>
     private val rows = mutableListOf<String>()
@@ -100,6 +145,14 @@ class MeterActivity : AppCompatActivity() {
     private var lastDischargeFET: Boolean = false
     private var isTemporaryLowVoltageMode = false
     private var isInFactoryMode = false
+
+    // Response queue for settings
+    private val responseQueue = mutableMapOf<Int, ByteArray>()
+    private val pendingResponses = mutableMapOf<Int, Long>() // register -> timestamp
+
+    // Debug logging
+    private val debugLog = StringBuilder()
+    private val MAX_DEBUG_LINES = 50
 
     // periodic polling while connected
     private val pollIntervalMs = 1000L
@@ -156,6 +209,23 @@ class MeterActivity : AppCompatActivity() {
             setLabel("SOC")
             setPercent(0)
         }
+
+        // Create debug section
+        debugScrollView = ScrollView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, 200
+            ).apply { setMargins(16, 10, 16, 6) }
+        }
+
+        tvDebug = TextView(this).apply {
+            setBackgroundColor(Color.parseColor("#1E1E1E"))
+            setTextColor(Color.parseColor("#00FF00"))
+            textSize = 10f
+            typeface = Typeface.MONOSPACE
+            setPadding(16, 8, 16, 8)
+        }
+
+        debugScrollView.addView(tvDebug)
 
         fun makeCard(title: String, colorHex: String): Pair<LinearLayout, TextView> {
             val card = LinearLayout(this).apply {
@@ -323,6 +393,7 @@ class MeterActivity : AppCompatActivity() {
             addView(list, LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
             addView(gauge)
+            addView(debugScrollView) // Add debug view
             addView(cardName)
             addView(cardVolt)
             addView(cardCurr)
@@ -355,9 +426,9 @@ class MeterActivity : AppCompatActivity() {
             if (isChecked) {
                 AlertDialog.Builder(this)
                     .setTitle("Force FETs ON with Voltage Settings")
-                    .setMessage("This will:\n1. Enter factory mode\n2. Set cell low voltage cutoff to 2.00V\n3. Set pack voltage: 16.0V cutoff, 16.8V release\n4. Force both FETs ON\n5. Exit factory mode\n6. Revert to normal voltages after 20s\n\nWARNING: Low voltages may damage cells!")
+                    .setMessage("This will:\n1. Enter factory mode\n2. Set safe voltage limits\n3. Force both FETs ON\n4. Exit factory mode\n\nWARNING: Make sure you understand the risks!")
                     .setPositiveButton("Proceed") { _, _ ->
-                        setVoltagesAndForceFets()
+                        setSafeVoltagesAndForceFets()
                     }
                     .setNegativeButton("Cancel") { _, _ ->
                         fetSwitch.isChecked = false
@@ -367,77 +438,128 @@ class MeterActivity : AppCompatActivity() {
                 toast("FET control returned to BMS automatic operation")
             }
         }
+
+        // Add debug button
+        val debugBtn = Button(this).apply {
+            text = "Read BMS Settings"
+            setOnClickListener {
+                readBmsSettings()
+            }
+        }
+        (root as LinearLayout).addView(debugBtn, 7) // Add after debug view
     }
 
-    // Function to set all voltage settings and force FETs ON with proper BLE timing
-    private fun setVoltagesAndForceFets() {
+    // Debug logging functions
+    private fun addDebugLog(message: String) {
+        runOnUiThread {
+            val timestamp = System.currentTimeMillis()
+            val timeStr = String.format("%tT", timestamp)
+            debugLog.append("[$timeStr] $message\n")
+            
+            // Keep only last MAX_DEBUG_LINES
+            val lines = debugLog.toString().split("\n")
+            if (lines.size > MAX_DEBUG_LINES) {
+                debugLog.clear()
+                debugLog.append(lines.takeLast(MAX_DEBUG_LINES).joinToString("\n"))
+            }
+            
+            tvDebug.text = debugLog.toString()
+            debugScrollView.post { debugScrollView.fullScroll(ScrollView.FOCUS_DOWN) }
+        }
+        Log.d("BMS_DEBUG", message)
+    }
+
+    private fun logSentPacket(packet: ByteArray, description: String) {
+        addDebugLog("📤 SENT: $description")
+        addDebugLog("     HEX: ${packet.joinToString(" ") { "%02X".format(it) }}")
+        addDebugLog("     Length: ${packet.size} bytes")
+    }
+
+    private fun logReceivedPacket(packet: ByteArray, description: String) {
+        addDebugLog("📥 RECV: $description")
+        addDebugLog("     HEX: ${packet.joinToString(" ") { "%02X".format(it) }}")
+        addDebugLog("     Length: ${packet.size} bytes")
+    }
+
+    // Function to set safe voltage settings and force FETs ON with proper BLE timing
+    private fun setSafeVoltagesAndForceFets() {
         chWrite?.let { w ->
             gatt?.let { g ->
                 isTemporaryLowVoltageMode = true
                 
                 // Step 1: Enter factory mode
+                addDebugLog("🚀 Starting EEPROM write sequence...")
                 toast("Entering factory mode...")
                 w.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
                 w.value = CMD_ENTER_FACTORY_MODE
+                logSentPacket(CMD_ENTER_FACTORY_MODE, "Enter Factory Mode")
                 g.writeCharacteristic(w)
                 isInFactoryMode = true
                 
                 handler.postDelayed({
-                    // Step 2: Set cell low voltage cutoff to 2.00V
-                    toast("Setting cell voltage to 2.00V...")
+                    // Step 2: Set safe cell voltage limits
+                    toast("Setting safe cell voltages...")
                     w.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
-                    w.value = CMD_SET_LOW_VOLTAGE_2V
+                    
+                    // Set Cell UVP to 2.8V
+                    w.value = CMD_SET_CELL_UVP_2_8V
+                    logSentPacket(CMD_SET_CELL_UVP_2_8V, "Set Cell UVP 2.8V")
                     g.writeCharacteristic(w)
                     
                     handler.postDelayed({
-                        // Step 3: Set pack low voltage cutoff to 16.0V
-                        toast("Setting pack cutoff to 16.0V...")
-                        w.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
-                        w.value = CMD_SET_PACK_LOW_VOLTAGE_16V
+                        // Set Cell UVP Release to 3.0V
+                        w.value = CMD_SET_CELL_UVP_RELEASE_3_0V
+                        logSentPacket(CMD_SET_CELL_UVP_RELEASE_3_0V, "Set Cell UVP Release 3.0V")
                         g.writeCharacteristic(w)
                         
                         handler.postDelayed({
-                            // Step 4: Set pack low voltage release to 16.8V
-                            toast("Setting pack release to 16.8V...")
-                            w.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
-                            w.value = CMD_SET_PACK_LOW_VOLTAGE_RELEASE_16_8V
+                            // Step 3: Set safe pack voltage limits
+                            toast("Setting safe pack voltages...")
+                            
+                            // Set Pack UVP to 12.0V
+                            w.value = CMD_SET_PACK_UVP_12_0V
+                            logSentPacket(CMD_SET_PACK_UVP_12_0V, "Set Pack UVP 12.0V")
                             g.writeCharacteristic(w)
                             
                             handler.postDelayed({
-                                // Step 5: Exit factory mode
-                                toast("Exiting factory mode...")
-                                w.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
-                                w.value = CMD_EXIT_FACTORY_MODE
+                                // Set Pack UVP Release to 12.5V
+                                w.value = CMD_SET_PACK_UVP_RELEASE_12_5V
+                                logSentPacket(CMD_SET_PACK_UVP_RELEASE_12_5V, "Set Pack UVP Release 12.5V")
                                 g.writeCharacteristic(w)
-                                isInFactoryMode = false
                                 
                                 handler.postDelayed({
-                                    // Step 6: Force FETs ON
-                                    toast("Forcing both FETs ON...")
-                                    w.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
-                                    w.value = CMD_FET_FORCE_ON
+                                    // Step 4: Exit factory mode
+                                    toast("Exiting factory mode...")
+                                    w.value = CMD_EXIT_FACTORY_MODE
+                                    logSentPacket(CMD_EXIT_FACTORY_MODE, "Exit Factory Mode")
                                     g.writeCharacteristic(w)
+                                    isInFactoryMode = false
                                     
-                                    // Step 7: Schedule revert to normal voltages after 20 seconds
                                     handler.postDelayed({
-                                        revertToNormalVoltages()
-                                    }, 20000)
-                                    
-                                    // Step 8: Update status
-                                    handler.postDelayed({
-                                        chWrite?.let { w2 ->
-                                            gatt?.let { g2 ->
-                                                w2.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
-                                                w2.value = CMD_BASIC_INFO
-                                                g2.writeCharacteristic(w2)
+                                        // Step 5: Force FETs ON
+                                        toast("Forcing both FETs ON...")
+                                        w.value = CMD_FET_FORCE_ON
+                                        logSentPacket(CMD_FET_FORCE_ON, "Force FETs ON")
+                                        g.writeCharacteristic(w)
+                                        
+                                        // Step 6: Update status
+                                        handler.postDelayed({
+                                            chWrite?.let { w2 ->
+                                                gatt?.let { g2 ->
+                                                    w2.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
+                                                    w2.value = CMD_BASIC_INFO
+                                                    logSentPacket(CMD_BASIC_INFO, "Read Basic Info")
+                                                    g2.writeCharacteristic(w2)
+                                                }
                                             }
-                                        }
-                                    }, BLE_COMMAND_DELAY)
-                                    
-                                }, FACTORY_MODE_DELAY)
-                            }, BLE_COMMAND_DELAY)
-                        }, BLE_COMMAND_DELAY)
-                    }, BLE_COMMAND_DELAY)
+                                            addDebugLog("✅ EEPROM write sequence completed!")
+                                        }, BLE_COMMAND_DELAY)
+                                        
+                                    }, FACTORY_MODE_DELAY)
+                                }, SETTINGS_WRITE_DELAY)
+                            }, SETTINGS_WRITE_DELAY)
+                        }, SETTINGS_WRITE_DELAY)
+                    }, SETTINGS_WRITE_DELAY)
                 }, FACTORY_MODE_DELAY)
             } ?: run {
                 toast("Not connected to BMS")
@@ -453,58 +575,178 @@ class MeterActivity : AppCompatActivity() {
         }
     }
 
-    // Function to revert to normal voltage settings
-    private fun revertToNormalVoltages() {
+    // Function to read BMS settings
+    private fun readBmsSettings() {
         chWrite?.let { w ->
             gatt?.let { g ->
-                // Step 1: Enter factory mode
-                toast("Entering factory mode to restore voltages...")
+                addDebugLog("📖 Starting BMS settings read...")
+                toast("Reading BMS settings...")
+                
+                // Enter factory mode first
                 w.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
                 w.value = CMD_ENTER_FACTORY_MODE
+                logSentPacket(CMD_ENTER_FACTORY_MODE, "Enter Factory Mode (Read)")
                 g.writeCharacteristic(w)
                 isInFactoryMode = true
                 
                 handler.postDelayed({
-                    // Step 2: Set pack low voltage cutoff to 21.7V
-                    toast("Restoring pack cutoff to 21.7V...")
-                    w.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
-                    w.value = CMD_SET_PACK_LOW_VOLTAGE_21_7V
-                    g.writeCharacteristic(w)
+                    // Read cell voltage settings
+                    addDebugLog("Reading cell voltage settings...")
+                    readSetting(0x24, "Cell OVP") // Cell OVP
+                    readSetting(0x25, "Cell OVP Release") // Cell OVP Release
+                    readSetting(0x26, "Cell UVP") // Cell UVP
+                    readSetting(0x27, "Cell UVP Release") // Cell UVP Release
                     
                     handler.postDelayed({
-                        // Step 3: Set pack low voltage release to 22.4V
-                        toast("Restoring pack release to 22.4V...")
-                        w.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
-                        w.value = CMD_SET_PACK_LOW_VOLTAGE_RELEASE_22_4V
-                        g.writeCharacteristic(w)
+                        // Read pack voltage settings
+                        addDebugLog("Reading pack voltage settings...")
+                        readSetting(0x20, "Pack OVP") // Pack OVP
+                        readSetting(0x21, "Pack OVP Release") // Pack OVP Release
+                        readSetting(0x22, "Pack UVP") // Pack UVP
+                        readSetting(0x23, "Pack UVP Release") // Pack UVP Release
                         
                         handler.postDelayed({
-                            // Step 4: Exit factory mode
-                            toast("Exiting factory mode...")
-                            w.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
+                            // Exit factory mode
                             w.value = CMD_EXIT_FACTORY_MODE
+                            logSentPacket(CMD_EXIT_FACTORY_MODE, "Exit Factory Mode (Read)")
                             g.writeCharacteristic(w)
                             isInFactoryMode = false
-                            
-                            // Step 5: Update status
-                            handler.postDelayed({
-                                chWrite?.let { w2 ->
-                                    gatt?.let { g2 ->
-                                        w2.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
-                                        w2.value = CMD_BASIC_INFO
-                                        g2.writeCharacteristic(w2)
-                                    }
-                                }
-                                isTemporaryLowVoltageMode = false
-                                toast("Normal voltage settings restored")
-                            }, BLE_COMMAND_DELAY)
-                            
-                        }, FACTORY_MODE_DELAY)
-                    }, BLE_COMMAND_DELAY)
+                            addDebugLog("✅ Settings reading completed!")
+                            toast("Settings reading completed")
+                        }, 4000)
+                    }, 2000)
                 }, FACTORY_MODE_DELAY)
             }
         }
     }
+
+    private fun readSetting(register: Int, description: String) {
+        chWrite?.let { w ->
+            gatt?.let { g ->
+                val readCmd = cmdReadRegister(register)
+                w.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
+                w.value = readCmd
+                logSentPacket(readCmd, "Read $description (0x${register.toString(16)})")
+                g.writeCharacteristic(w)
+                
+                // Mark as pending response
+                pendingResponses[register] = System.currentTimeMillis()
+                
+                handler.postDelayed({
+                    // Check for timeout
+                    val sentTime = pendingResponses[register]
+                    if (sentTime != null && System.currentTimeMillis() - sentTime > RESPONSE_TIMEOUT) {
+                        addDebugLog("⏰ TIMEOUT: No response for $description (0x${register.toString(16)})")
+                        pendingResponses.remove(register)
+                    }
+                }, RESPONSE_TIMEOUT)
+            }
+        }
+    }
+
+    private fun handleJbdResponse(data: ByteArray) {
+        logReceivedPacket(data, "JBD Response")
+        
+        if (data.size < 7) {
+            addDebugLog("❌ Response too short: ${data.size} bytes")
+            return
+        }
+        if (data[0] != JBD_START || data[data.size - 1] != JBD_END) {
+            addDebugLog("❌ Invalid JBD frame: start=${data[0].toInt() and 0xFF}, end=${data[data.size - 1].toInt() and 0xFF}")
+            return
+        }
+        
+        val register = data[1].toInt() and 0xFF
+        val status = data[2].toInt() and 0xFF
+        val length = data[3].toInt() and 0xFF
+        
+        if (data.size < 7 + length) {
+            addDebugLog("❌ Insufficient data: need ${7 + length}, got ${data.size}")
+            return
+        }
+        
+        val payload = data.copyOfRange(4, 4 + length)
+        val checksumStart = 4 + length
+        if (checksumStart + 2 > data.size - 1) {
+            addDebugLog("❌ Invalid checksum position")
+            return
+        }
+        
+        val checksum = ((data[checksumStart].toInt() and 0xFF) shl 8) or (data[checksumStart + 1].toInt() and 0xFF)
+        val dataForChecksum = byteArrayOf(status.toByte(), length.toByte()) + payload
+        val expectedChecksum = calculateJbdChecksum(dataForChecksum)
+        
+        if (checksum != expectedChecksum) {
+            addDebugLog("❌ Checksum mismatch: got 0x${checksum.toString(16)}, expected 0x${expectedChecksum.toString(16)}")
+            return
+        }
+        
+        if (status != 0) {
+            addDebugLog("❌ JBD Status error: 0x${status.toString(16)}")
+            return
+        }
+        
+        // Remove from pending responses
+        pendingResponses.remove(register)
+        
+        responseQueue[register] = data
+        parseEepromData(register, payload)
+    }
+
+    private fun parseEepromData(register: Int, payload: ByteArray) {
+        if (payload.isEmpty()) {
+            addDebugLog("❌ Empty payload for register 0x${register.toString(16)}")
+            return
+        }
+        
+        try {
+            when (register) {
+                // Cell voltage settings (mV)
+                0x24, 0x25, 0x26, 0x27 -> {
+                    if (payload.size >= 2) {
+                        val rawValue = ((payload[0].toInt() and 0xFF) shl 8) or (payload[1].toInt() and 0xFF)
+                        val voltage = rawValue / 1000.0
+                        val settingName = when (register) {
+                            0x24 -> "Cell OVP"
+                            0x25 -> "Cell OVP Release"
+                            0x26 -> "Cell UVP"
+                            0x27 -> "Cell UVP Release"
+                            else -> "Unknown"
+                        }
+                        addDebugLog("✅ $settingName: ${String.format("%.3f", voltage)}V (raw: $rawValue mV)")
+                        toast("$settingName: ${String.format("%.3f", voltage)}V")
+                    } else {
+                        addDebugLog("❌ Invalid payload length for cell voltage: ${payload.size}")
+                    }
+                }
+                // Pack voltage settings (mV)
+                0x20, 0x21, 0x22, 0x23 -> {
+                    if (payload.size >= 2) {
+                        val rawValue = ((payload[0].toInt() and 0xFF) shl 8) or (payload[1].toInt() and 0xFF)
+                        val voltage = rawValue / 100.0
+                        val settingName = when (register) {
+                            0x20 -> "Pack OVP"
+                            0x21 -> "Pack OVP Release"
+                            0x22 -> "Pack UVP"
+                            0x23 -> "Pack UVP Release"
+                            else -> "Unknown"
+                        }
+                        addDebugLog("✅ $settingName: ${String.format("%.2f", voltage)}V (raw: $rawValue mV)")
+                        toast("$settingName: ${String.format("%.2f", voltage)}V")
+                    } else {
+                        addDebugLog("❌ Invalid payload length for pack voltage: ${payload.size}")
+                    }
+                }
+                else -> {
+                    addDebugLog("📋 Register 0x${register.toString(16)}: ${payload.joinToString(" ") { "%02X".format(it) }}")
+                }
+            }
+        } catch (e: Exception) {
+            addDebugLog("❌ Error parsing setting 0x${register.toString(16)}: ${e.message}")
+        }
+    }
+
+    // ... (rest of the code remains the same including onActivityResult, onResume, ensurePrereqs, etc.)
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
@@ -649,7 +891,10 @@ class MeterActivity : AppCompatActivity() {
                 adapterLv.notifyDataSetChanged()
             }
         }
-        override fun onScanFailed(code: Int) { toast("Scan failed: $code") }
+        override fun onScanFailed(code: Int) { 
+            addDebugLog("❌ Scan failed: $code")
+            toast("Scan failed: $code") 
+        }
     }
 
     private fun startScan() {
@@ -682,12 +927,18 @@ class MeterActivity : AppCompatActivity() {
         lastDischargeFET = false
         isTemporaryLowVoltageMode = false
         isInFactoryMode = false
+        responseQueue.clear()
+        pendingResponses.clear()
+        debugLog.clear()
+        tvDebug.text = ""
 
         scanning = true
+        addDebugLog("🔍 Starting BLE scan...")
         toast("Scanning for ${SCAN_MS/1000}s...")
         
         handler.postDelayed({
             stopScan()
+            addDebugLog("✅ Scan completed: ${rows.size} device(s) found")
             toast("Scan done: ${rows.size} device(s) found")
         }, SCAN_MS)
 
@@ -700,9 +951,11 @@ class MeterActivity : AppCompatActivity() {
         try {
             scanner?.startScan(filters, settings, scanCb)
         } catch (e: SecurityException) {
+            addDebugLog("❌ Permission denied for Bluetooth scanning")
             toast("Permission denied for Bluetooth scanning")
             scanning = false
         } catch (e: Exception) {
+            addDebugLog("❌ Scan failed: ${e.message}")
             toast("Scan failed: ${e.message}")
             scanning = false
         }
@@ -720,6 +973,7 @@ class MeterActivity : AppCompatActivity() {
         
         disconnectFromCurrentDevice()
         
+        addDebugLog("🔗 Connecting to ${device.address}...")
         toast("Connecting to ${device.address}...")
         
         // Reset UI values when connecting to new device
@@ -735,6 +989,8 @@ class MeterActivity : AppCompatActivity() {
         lastDischargeFET = false
         isTemporaryLowVoltageMode = false
         isInFactoryMode = false
+        responseQueue.clear()
+        pendingResponses.clear()
         
         gatt = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M)
             device.connectGatt(this, false, gattCb, BluetoothDevice.TRANSPORT_LE)
@@ -749,6 +1005,7 @@ class MeterActivity : AppCompatActivity() {
                 gatt?.let { g ->
                     w.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
                     w.value = CMD_EXIT_FACTORY_MODE
+                    addDebugLog("🔚 Exiting factory mode before disconnect")
                     g.writeCharacteristic(w)
                 }
             }
@@ -759,6 +1016,8 @@ class MeterActivity : AppCompatActivity() {
         chNotify = null
         chWrite = null
         rxBuffer.clear()
+        responseQueue.clear()
+        pendingResponses.clear()
         
         gatt?.let { g ->
             try {
@@ -769,11 +1028,13 @@ class MeterActivity : AppCompatActivity() {
             }
             gatt = null
         }
+        addDebugLog("🔌 Disconnected from device")
     }
 
     private val gattCb = object : BluetoothGattCallback() {
         override fun onConnectionStateChange(g: BluetoothGatt, status: Int, newState: Int) {
             runOnUiThread { 
+                addDebugLog("🔄 Connection state: ${stateName(newState)} (status=$status)")
                 toast("State: ${stateName(newState)} (status=$status)") 
                 if (newState == BluetoothProfile.STATE_CONNECTED) {
                     tvFetStatus.text = "Discovering services..."
@@ -786,6 +1047,8 @@ class MeterActivity : AppCompatActivity() {
                 chNotify = null
                 chWrite = null
                 rxBuffer.clear()
+                responseQueue.clear()
+                pendingResponses.clear()
                 g.close()
                 gatt = null
                 
@@ -802,11 +1065,13 @@ class MeterActivity : AppCompatActivity() {
             chWrite  = svc?.getCharacteristic(AMITIS_WRITE_CH)
             runOnUiThread {
                 if (svc == null || chNotify == null || chWrite == null) {
+                    addDebugLog("❌ Amitis FF00/FF01/FF02 not found")
                     toast("Amitis FF00/FF01/FF02 not found")
                     disconnectFromCurrentDevice()
                     fetSwitch.isChecked = false
                     tvFetStatus.text = "Service not found"
                 } else {
+                    addDebugLog("✅ Amitis service discovered - starting data polling")
                     toast("Amitis service ready - Starting data polling")
                     tvFetStatus.text = "Starting updates..."
                 }
@@ -828,6 +1093,7 @@ class MeterActivity : AppCompatActivity() {
             chWrite?.let { w ->
                 w.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
                 w.value = cmdReadRegister(0xA1)
+                addDebugLog("📤 Initial device info request")
                 g.writeCharacteristic(w)
             }
         }
@@ -864,6 +1130,11 @@ class MeterActivity : AppCompatActivity() {
                 val expected = (0x10000 - sum) and 0xFFFF
                 val got = (chkHi shl 8) or chkLo
                 if (expected != got || status != 0) continue
+
+                // Handle JBD protocol responses for settings
+                if (reg in 0x18..0x2F || reg == 0xA1) {
+                    handleJbdResponse(frame)
+                }
 
                 if (reg == 0x03) handleBasicInfo(payload)
             }
@@ -973,6 +1244,7 @@ class MeterActivity : AppCompatActivity() {
                 gatt?.let { g ->
                     w.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
                     w.value = CMD_EXIT_FACTORY_MODE
+                    addDebugLog("🔚 Exiting factory mode on destroy")
                     g.writeCharacteristic(w)
                 }
             }
