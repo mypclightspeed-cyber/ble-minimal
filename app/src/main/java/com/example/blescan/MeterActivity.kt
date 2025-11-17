@@ -571,14 +571,178 @@ class MeterActivity : AppCompatActivity() {
         }
     }
 
-    // ... (rest of the code remains exactly the same - only UI layout changes above)
+    // Function to read BMS settings (kept for internal use but not exposed via UI)
+    private fun readBmsSettings() {
+        chWrite?.let { w ->
+            gatt?.let { g ->
+                addDebugLog("📖 Starting BMS settings read...")
+                toast("Reading BMS settings...")
+                
+                // Enter factory mode first
+                w.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
+                w.value = CMD_ENTER_FACTORY_MODE
+                logSentPacket(CMD_ENTER_FACTORY_MODE, "Enter Factory Mode (Read)")
+                g.writeCharacteristic(w)
+                isInFactoryMode = true
+                
+                handler.postDelayed({
+                    // Read cell voltage settings
+                    addDebugLog("Reading cell voltage settings...")
+                    readSetting(0x24, "Cell OVP") // Cell OVP
+                    readSetting(0x25, "Cell OVP Release") // Cell OVP Release
+                    readSetting(0x26, "Cell UVP") // Cell UVP
+                    readSetting(0x27, "Cell UVP Release") // Cell UVP Release
+                    
+                    handler.postDelayed({
+                        // Read pack voltage settings
+                        addDebugLog("Reading pack voltage settings...")
+                        readSetting(0x20, "Pack OVP") // Pack OVP
+                        readSetting(0x21, "Pack OVP Release") // Pack OVP Release
+                        readSetting(0x22, "Pack UVP") // Pack UVP
+                        readSetting(0x23, "Pack UVP Release") // Pack UVP Release
+                        
+                        handler.postDelayed({
+                            // Exit factory mode
+                            w.value = CMD_EXIT_FACTORY_MODE
+                            logSentPacket(CMD_EXIT_FACTORY_MODE, "Exit Factory Mode (Read)")
+                            g.writeCharacteristic(w)
+                            isInFactoryMode = false
+                            addDebugLog("✅ Settings reading completed!")
+                            toast("Settings reading completed")
+                        }, 4000)
+                    }, 2000)
+                }, FACTORY_MODE_DELAY)
+            }
+        }
+    }
 
-    // The rest of the code (handleJbdResponse, parseEepromData, onActivityResult, onResume, 
-    // ensurePrereqs, openRelevantSettings, updateWarningBanner, isLocationEnabled, 
-    // checkAndRequestPermissions, scanCb, startScan, stopScan, connectTo, 
-    // disconnectFromCurrentDevice, gattCb, onAmitisBytes, handleBasicInfo, 
-    // helper functions, ThermometerView, ModernHalfGauge) remains exactly the same
-    // as in the previous version...
+    private fun readSetting(register: Int, description: String) {
+        chWrite?.let { w ->
+            gatt?.let { g ->
+                val readCmd = cmdReadRegister(register)
+                w.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
+                w.value = readCmd
+                logSentPacket(readCmd, "Read $description (0x${register.toString(16)})")
+                g.writeCharacteristic(w)
+                
+                // Mark as pending response
+                pendingResponses[register] = System.currentTimeMillis()
+                
+                handler.postDelayed({
+                    // Check for timeout
+                    val sentTime = pendingResponses[register]
+                    if (sentTime != null && System.currentTimeMillis() - sentTime > RESPONSE_TIMEOUT) {
+                        addDebugLog("⏰ TIMEOUT: No response for $description (0x${register.toString(16)})")
+                        pendingResponses.remove(register)
+                    }
+                }, RESPONSE_TIMEOUT)
+            }
+        }
+    }
+
+    // ADD THE MISSING FUNCTION - handleJbdResponse
+    private fun handleJbdResponse(data: ByteArray) {
+        logReceivedPacket(data, "JBD Response")
+        
+        if (data.size < 7) {
+            addDebugLog("❌ Response too short: ${data.size} bytes")
+            return
+        }
+        if (data[0] != JBD_START || data[data.size - 1] != JBD_END) {
+            addDebugLog("❌ Invalid JBD frame: start=${data[0].toInt() and 0xFF}, end=${data[data.size - 1].toInt() and 0xFF}")
+            return
+        }
+        
+        val register = data[1].toInt() and 0xFF
+        val status = data[2].toInt() and 0xFF
+        val length = data[3].toInt() and 0xFF
+        
+        if (data.size < 7 + length) {
+            addDebugLog("❌ Insufficient data: need ${7 + length}, got ${data.size}")
+            return
+        }
+        
+        val payload = data.copyOfRange(4, 4 + length)
+        val checksumStart = 4 + length
+        if (checksumStart + 2 > data.size - 1) {
+            addDebugLog("❌ Invalid checksum position")
+            return
+        }
+        
+        val checksum = ((data[checksumStart].toInt() and 0xFF) shl 8) or (data[checksumStart + 1].toInt() and 0xFF)
+        val dataForChecksum = byteArrayOf(status.toByte(), length.toByte()) + payload
+        val expectedChecksum = calculateJbdChecksum(dataForChecksum)
+        
+        if (checksum != expectedChecksum) {
+            addDebugLog("❌ Checksum mismatch: got 0x${checksum.toString(16)}, expected 0x${expectedChecksum.toString(16)}")
+            return
+        }
+        
+        if (status != 0) {
+            addDebugLog("❌ JBD Status error: 0x${status.toString(16)}")
+            return
+        }
+        
+        // Remove from pending responses
+        pendingResponses.remove(register)
+        
+        responseQueue[register] = data
+        parseEepromData(register, payload)
+    }
+
+    // ADD THE MISSING FUNCTION - parseEepromData
+    private fun parseEepromData(register: Int, payload: ByteArray) {
+        if (payload.isEmpty()) {
+            addDebugLog("❌ Empty payload for register 0x${register.toString(16)}")
+            return
+        }
+        
+        try {
+            when (register) {
+                // Cell voltage settings (mV)
+                0x24, 0x25, 0x26, 0x27 -> {
+                    if (payload.size >= 2) {
+                        val rawValue = ((payload[0].toInt() and 0xFF) shl 8) or (payload[1].toInt() and 0xFF)
+                        val voltage = rawValue / 1000.0
+                        val settingName = when (register) {
+                            0x24 -> "Cell OVP"
+                            0x25 -> "Cell OVP Release"
+                            0x26 -> "Cell UVP"
+                            0x27 -> "Cell UVP Release"
+                            else -> "Unknown"
+                        }
+                        addDebugLog("✅ $settingName: ${String.format("%.3f", voltage)}V (raw: $rawValue mV)")
+                        toast("$settingName: ${String.format("%.3f", voltage)}V")
+                    } else {
+                        addDebugLog("❌ Invalid payload length for cell voltage: ${payload.size}")
+                    }
+                }
+                // Pack voltage settings (mV)
+                0x20, 0x21, 0x22, 0x23 -> {
+                    if (payload.size >= 2) {
+                        val rawValue = ((payload[0].toInt() and 0xFF) shl 8) or (payload[1].toInt() and 0xFF)
+                        val voltage = rawValue / 100.0
+                        val settingName = when (register) {
+                            0x20 -> "Pack OVP"
+                            0x21 -> "Pack OVP Release"
+                            0x22 -> "Pack UVP"
+                            0x23 -> "Pack UVP Release"
+                            else -> "Unknown"
+                        }
+                        addDebugLog("✅ $settingName: ${String.format("%.2f", voltage)}V (raw: $rawValue mV)")
+                        toast("$settingName: ${String.format("%.2f", voltage)}V")
+                    } else {
+                        addDebugLog("❌ Invalid payload length for pack voltage: ${payload.size}")
+                    }
+                }
+                else -> {
+                    addDebugLog("📋 Register 0x${register.toString(16)}: ${payload.joinToString(" ") { "%02X".format(it) }}")
+                }
+            }
+        } catch (e: Exception) {
+            addDebugLog("❌ Error parsing setting 0x${register.toString(16)}: ${e.message}")
+        }
+    }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
