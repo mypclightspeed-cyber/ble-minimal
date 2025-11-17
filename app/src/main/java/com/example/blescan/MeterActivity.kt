@@ -36,6 +36,17 @@ class MeterActivity : AppCompatActivity() {
     
     // Updated FET control commands for your specific BMS
     private val CMD_FET_FORCE_ON = hex("DD 5A E1 02 00 00 FF 1D 77")  // Force both FETs ON - YOUR SPECIFIC COMMAND
+    
+    // Commands for voltage settings
+    private val CMD_SET_LOW_VOLTAGE_2V = hex("DD 5A E0 07 02 D0 07 1E 77") // Set low voltage cutoff to 2.00V per cell
+    
+    // Pack voltage settings - Temporary (for force ON)
+    private val CMD_SET_PACK_LOW_VOLTAGE_16V = hex("DD 5A E1 01 02 40 3E 9D 77") // 16.0V = 16000mV = 0x3E40 (little endian: 40 3E)
+    private val CMD_SET_PACK_LOW_VOLTAGE_RELEASE_16_8V = hex("DD 5A E1 02 02 80 41 1C 77") // 16.8V = 16800mV = 0x4180 (little endian: 80 41)
+    
+    // Pack voltage settings - Normal (revert after 20 seconds)
+    private val CMD_SET_PACK_LOW_VOLTAGE_21_7V = hex("DD 5A E1 01 02 90 54 0C 77") // 21.7V = 21700mV = 0x5490 (little endian: 90 54)
+    private val CMD_SET_PACK_LOW_VOLTAGE_RELEASE_22_4V = hex("DD 5A E1 02 02 60 57 6B 77") // 22.4V = 22400mV = 0x5760 (little endian: 60 57)
 
     private fun cmdReadRegister(reg: Int): ByteArray {
         val r = reg and 0xFF
@@ -76,15 +87,31 @@ class MeterActivity : AppCompatActivity() {
     private var chWrite: BluetoothGattCharacteristic? = null
     private val rxBuffer = ArrayList<Byte>()
 
+    // Track last FET status for change detection
+    private var lastFetStatus: String = ""
+    private var lastChargeFET: Boolean = false
+    private var lastDischargeFET: Boolean = false
+
+    // Track if we're in temporary low voltage mode
+    private var isTemporaryLowVoltageMode = false
+
     // periodic polling while connected
     private val pollIntervalMs = 1000L
     private val pollTask = object : Runnable {
         override fun run() {
+            // Send basic info command to get all parameters including FET status
             chWrite?.let { w ->
                 gatt?.let { g ->
                     w.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
                     w.value = CMD_BASIC_INFO
                     g.writeCharacteristic(w)
+                    
+                    // Debug: Force UI update to show we're polling
+                    runOnUiThread {
+                        if (tvFetStatus.text == "-" || tvFetStatus.text == "Waiting for data...") {
+                            tvFetStatus.text = "Updating..."
+                        }
+                    }
                 }
             }
             handler.postDelayed(this, pollIntervalMs)
@@ -231,7 +258,7 @@ class MeterActivity : AppCompatActivity() {
                 setTextColor(Color.WHITE)
             }
             val valueTv = TextView(this).apply {
-                text = "-"
+                text = "Waiting for data..."
                 textSize = 16f
                 setTextColor(Color.WHITE)
             }
@@ -323,12 +350,12 @@ class MeterActivity : AppCompatActivity() {
         // Set up FET switch listener
         fetSwitch.setOnCheckedChangeListener { _, isChecked ->
             if (isChecked) {
-                // Show confirmation dialog before forcing FETs ON
+                // Show confirmation dialog before forcing FETs ON and setting low voltage cutoff
                 AlertDialog.Builder(this)
-                    .setTitle("Force FETs ON")
-                    .setMessage("Are you sure you want to force both Charge and Discharge FETs ON?\n\nWARNING: This bypasses BMS protection!")
-                    .setPositiveButton("Yes, Force ON") { _, _ ->
-                        forceFetsOn()
+                    .setTitle("Force FETs ON with Voltage Settings")
+                    .setMessage("This will:\n1. Set cell low voltage cutoff to 2.00V\n2. Set pack voltage: 16.0V cutoff, 16.8V release\n3. Force both FETs ON\n4. Revert to normal voltages after 20s\n\nWARNING: Low voltages may damage cells!")
+                    .setPositiveButton("Proceed") { _, _ ->
+                        setVoltagesAndForceFets()
                     }
                     .setNegativeButton("Cancel") { _, _ ->
                         fetSwitch.isChecked = false
@@ -342,32 +369,102 @@ class MeterActivity : AppCompatActivity() {
         }
     }
 
-    // Function to force both FETs ON using YOUR SPECIFIC COMMAND
-    private fun forceFetsOn() {
+    // Function to set all voltage settings and then force both FETs ON
+    private fun setVoltagesAndForceFets() {
         chWrite?.let { w ->
             gatt?.let { g ->
-                w.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
-                w.value = CMD_FET_FORCE_ON
-                g.writeCharacteristic(w)
-                toast("Sending FET force ON command: DD 5A E1 02 00 00 FF 1D 77")
+                isTemporaryLowVoltageMode = true
                 
-                // Schedule a basic info request to update the status after a short delay
+                // Step 1: Set cell low voltage cutoff to 2.00V
+                toast("Setting cell low voltage cutoff to 2.00V...")
+                w.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
+                w.value = CMD_SET_LOW_VOLTAGE_2V
+                g.writeCharacteristic(w)
+                
                 handler.postDelayed({
-                    chWrite?.let { w2 ->
-                        gatt?.let { g2 ->
-                            w2.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
-                            w2.value = CMD_BASIC_INFO
-                            g2.writeCharacteristic(w2)
-                        }
-                    }
-                }, 1000)
+                    // Step 2: Set pack low voltage cutoff to 16.0V
+                    toast("Setting pack low voltage cutoff to 16.0V...")
+                    w.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
+                    w.value = CMD_SET_PACK_LOW_VOLTAGE_16V
+                    g.writeCharacteristic(w)
+                    
+                    handler.postDelayed({
+                        // Step 3: Set pack low voltage release to 16.8V
+                        toast("Setting pack low voltage release to 16.8V...")
+                        w.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
+                        w.value = CMD_SET_PACK_LOW_VOLTAGE_RELEASE_16_8V
+                        g.writeCharacteristic(w)
+                        
+                        handler.postDelayed({
+                            // Step 4: Force FETs ON
+                            toast("Forcing both FETs ON...")
+                            w.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
+                            w.value = CMD_FET_FORCE_ON
+                            g.writeCharacteristic(w)
+                            
+                            // Step 5: Schedule revert to normal voltages after 20 seconds
+                            handler.postDelayed({
+                                revertToNormalVoltages()
+                            }, 20000) // 20 seconds
+                            
+                            // Step 6: Force an immediate status update
+                            handler.postDelayed({
+                                chWrite?.let { w2 ->
+                                    gatt?.let { g2 ->
+                                        w2.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
+                                        w2.value = CMD_BASIC_INFO
+                                        g2.writeCharacteristic(w2)
+                                    }
+                                }
+                            }, 500)
+                            
+                        }, 300) // Wait 300ms between commands
+                    }, 300)
+                }, 300)
             } ?: run {
                 toast("Not connected to BMS")
                 fetSwitch.isChecked = false
+                isTemporaryLowVoltageMode = false
             }
         } ?: run {
             toast("Not connected to BMS")
             fetSwitch.isChecked = false
+            isTemporaryLowVoltageMode = false
+        }
+    }
+
+    // Function to revert to normal voltage settings
+    private fun revertToNormalVoltages() {
+        chWrite?.let { w ->
+            gatt?.let { g ->
+                toast("Reverting to normal voltage settings...")
+                
+                // Step 1: Set pack low voltage cutoff to 21.7V
+                w.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
+                w.value = CMD_SET_PACK_LOW_VOLTAGE_21_7V
+                g.writeCharacteristic(w)
+                
+                handler.postDelayed({
+                    // Step 2: Set pack low voltage release to 22.4V
+                    w.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
+                    w.value = CMD_SET_PACK_LOW_VOLTAGE_RELEASE_22_4V
+                    g.writeCharacteristic(w)
+                    
+                    // Step 3: Update status
+                    handler.postDelayed({
+                        chWrite?.let { w2 ->
+                            gatt?.let { g2 ->
+                                w2.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
+                                w2.value = CMD_BASIC_INFO
+                                g2.writeCharacteristic(w2)
+                            }
+                        }
+                        isTemporaryLowVoltageMode = false
+                        toast("Normal voltage settings restored")
+                    }, 500)
+                    
+                }, 300)
+            }
         }
     }
 
@@ -539,9 +636,13 @@ class MeterActivity : AppCompatActivity() {
         tvCurr.text = "-"
         tvTemp.text = "-"
         tvName.text = ""
-        tvFetStatus.text = "-" // Reset FET status
+        tvFetStatus.text = "Waiting for data..." // Reset FET status
         thermometerView.setTemperature(0.0)
         fetSwitch.isChecked = false // Reset FET switch
+        lastFetStatus = ""
+        lastChargeFET = false
+        lastDischargeFET = false
+        isTemporaryLowVoltageMode = false
 
         scanning = true
         toast("Scanning for ${SCAN_MS/1000}s...")
@@ -587,9 +688,13 @@ class MeterActivity : AppCompatActivity() {
         tvVolt.text = "-"
         tvCurr.text = "-"
         tvTemp.text = "-"
-        tvFetStatus.text = "-" // Reset FET status
+        tvFetStatus.text = "Connecting..." // Reset FET status
         thermometerView.setTemperature(0.0)
         fetSwitch.isChecked = false // Reset FET switch
+        lastFetStatus = ""
+        lastChargeFET = false
+        lastDischargeFET = false
+        isTemporaryLowVoltageMode = false
         
         gatt = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M)
             device.connectGatt(this, false, gattCb, BluetoothDevice.TRANSPORT_LE)
@@ -616,7 +721,12 @@ class MeterActivity : AppCompatActivity() {
 
     private val gattCb = object : BluetoothGattCallback() {
         override fun onConnectionStateChange(g: BluetoothGatt, status: Int, newState: Int) {
-            runOnUiThread { toast("State: ${stateName(newState)} (status=$status)") }
+            runOnUiThread { 
+                toast("State: ${stateName(newState)} (status=$status)") 
+                if (newState == BluetoothProfile.STATE_CONNECTED) {
+                    tvFetStatus.text = "Discovering services..."
+                }
+            }
             if (newState == BluetoothProfile.STATE_CONNECTED) {
                 g.discoverServices()
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
@@ -630,6 +740,7 @@ class MeterActivity : AppCompatActivity() {
                 // Reset FET switch when disconnected
                 runOnUiThread {
                     fetSwitch.isChecked = false
+                    tvFetStatus.text = "Disconnected"
                 }
             }
         }
@@ -643,8 +754,10 @@ class MeterActivity : AppCompatActivity() {
                     toast("Amitis FF00/FF01/FF02 not found")
                     disconnectFromCurrentDevice()
                     fetSwitch.isChecked = false
+                    tvFetStatus.text = "Service not found"
                 } else {
-                    toast("Amitis service ready")
+                    toast("Amitis service ready - Starting data polling")
+                    tvFetStatus.text = "Starting updates..."
                 }
             }
             
@@ -660,7 +773,7 @@ class MeterActivity : AppCompatActivity() {
             }
             // start continuous polling
             handler.removeCallbacks(pollTask)
-            handler.postDelayed(pollTask, 300)
+            handler.postDelayed(pollTask, 500) // Start polling after 500ms
             // optional EEPROM name request (ignored for UI)
             chWrite?.let { w ->
                 w.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
@@ -756,11 +869,13 @@ class MeterActivity : AppCompatActivity() {
             thermometerView.setTemperature(tempValue)
             
             // Update FET status display with more detailed information
+            val voltageStatus = if (isTemporaryLowVoltageMode) " (Low Voltage Mode)" else ""
             val fetStatusText = buildString {
                 append("Charge: ")
                 append(if (chargeFET) "ON" else "OFF")
                 append(" | Discharge: ")
                 append(if (dischargeFET) "ON" else "OFF")
+                append(voltageStatus)
                 
                 // Optionally show current limit status if needed
                 if (chargeCurrentLimit || dischargeCurrentLimit) {
@@ -769,18 +884,25 @@ class MeterActivity : AppCompatActivity() {
                     if (dischargeCurrentLimit) append("Dischg")
                 }
             }
-            tvFetStatus.text = fetStatusText
             
-            // Update switch state based on actual FET status
-            // If both FETs are ON, keep the switch checked, otherwise uncheck it
-            if (chargeFET && dischargeFET) {
-                // Switch remains checked if user manually set it
-                // Don't automatically uncheck as it might be intentional
-            } else {
-                // If FETs are not both ON and switch is checked, it means the command didn't work
-                if (fetSwitch.isChecked) {
-                    // Don't automatically uncheck - let user decide
-                    // toast("FETs may not be forced ON - check status")
+            // Only update if the status has changed to avoid unnecessary UI updates
+            if (fetStatusText != lastFetStatus || chargeFET != lastChargeFET || dischargeFET != lastDischargeFET) {
+                tvFetStatus.text = fetStatusText
+                lastFetStatus = fetStatusText
+                lastChargeFET = chargeFET
+                lastDischargeFET = dischargeFET
+                
+                // Update switch state based on actual FET status
+                // If both FETs are ON, keep the switch checked, otherwise uncheck it
+                if (chargeFET && dischargeFET) {
+                    // Switch remains checked if user manually set it
+                    // Don't automatically uncheck as it might be intentional
+                } else {
+                    // If FETs are not both ON and switch is checked, it means the command didn't work
+                    if (fetSwitch.isChecked) {
+                        // Don't automatically uncheck - let user decide
+                        // toast("FETs may not be forced ON - check status")
+                    }
                 }
             }
         }
