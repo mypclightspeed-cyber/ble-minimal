@@ -37,16 +37,21 @@ class MeterActivity : AppCompatActivity() {
     // Updated FET control commands for your specific BMS
     private val CMD_FET_FORCE_ON = hex("DD 5A E1 02 00 00 FF 1D 77")  // Force both FETs ON - YOUR SPECIFIC COMMAND
     
-    // Commands for voltage settings
+    // Factory mode commands
+    private val CMD_ENTER_FACTORY_MODE = hex("DD 5A 00 02 56 78 22 77")  // Enter factory mode
+    private val CMD_EXIT_FACTORY_MODE = hex("DD 5A 00 02 55 AA 8B 77")   // Exit factory mode
+    
+    // CORRECTED voltage settings based on JbdBms repository
+    // Cell voltage settings
     private val CMD_SET_LOW_VOLTAGE_2V = hex("DD 5A E0 07 02 D0 07 1E 77") // Set low voltage cutoff to 2.00V per cell
     
     // Pack voltage settings - Temporary (for force ON)
-    private val CMD_SET_PACK_LOW_VOLTAGE_16V = hex("DD 5A E1 01 02 40 3E 9D 77") // 16.0V = 16000mV = 0x3E40 (little endian: 40 3E)
-    private val CMD_SET_PACK_LOW_VOLTAGE_RELEASE_16_8V = hex("DD 5A E1 02 02 80 41 1C 77") // 16.8V = 16800mV = 0x4180 (little endian: 80 41)
+    private val CMD_SET_PACK_LOW_VOLTAGE_16V = hex("DD 5A E1 02 40 3E 9D 77") // 16.0V = 16000mV = 0x3E40
+    private val CMD_SET_PACK_LOW_VOLTAGE_RELEASE_16_8V = hex("DD 5A E2 02 80 41 1C 77") // 16.8V = 16800mV = 0x4180
     
     // Pack voltage settings - Normal (revert after 20 seconds)
-    private val CMD_SET_PACK_LOW_VOLTAGE_21_7V = hex("DD 5A E1 01 02 90 54 0C 77") // 21.7V = 21700mV = 0x5490 (little endian: 90 54)
-    private val CMD_SET_PACK_LOW_VOLTAGE_RELEASE_22_4V = hex("DD 5A E1 02 02 60 57 6B 77") // 22.4V = 22400mV = 0x5760 (little endian: 60 57)
+    private val CMD_SET_PACK_LOW_VOLTAGE_21_7V = hex("DD 5A E1 02 90 54 0C 77") // 21.7V = 21700mV = 0x5490
+    private val CMD_SET_PACK_LOW_VOLTAGE_RELEASE_22_4V = hex("DD 5A E2 02 60 57 6B 77") // 22.4V = 22400mV = 0x5760
 
     private fun cmdReadRegister(reg: Int): ByteArray {
         val r = reg and 0xFF
@@ -94,6 +99,7 @@ class MeterActivity : AppCompatActivity() {
 
     // Track if we're in temporary low voltage mode
     private var isTemporaryLowVoltageMode = false
+    private var isInFactoryMode = false
 
     // periodic polling while connected
     private val pollIntervalMs = 1000L
@@ -353,7 +359,7 @@ class MeterActivity : AppCompatActivity() {
                 // Show confirmation dialog before forcing FETs ON and setting low voltage cutoff
                 AlertDialog.Builder(this)
                     .setTitle("Force FETs ON with Voltage Settings")
-                    .setMessage("This will:\n1. Set cell low voltage cutoff to 2.00V\n2. Set pack voltage: 16.0V cutoff, 16.8V release\n3. Force both FETs ON\n4. Revert to normal voltages after 20s\n\nWARNING: Low voltages may damage cells!")
+                    .setMessage("This will:\n1. Enter factory mode\n2. Set cell low voltage cutoff to 2.00V\n3. Set pack voltage: 16.0V cutoff, 16.8V release\n4. Force both FETs ON\n5. Exit factory mode\n6. Revert to normal voltages after 20s\n\nWARNING: Low voltages may damage cells!")
                     .setPositiveButton("Proceed") { _, _ ->
                         setVoltagesAndForceFets()
                     }
@@ -369,45 +375,124 @@ class MeterActivity : AppCompatActivity() {
         }
     }
 
-    // Function to set all voltage settings and then force both FETs ON
+    // Function to set all voltage settings and then force both FETs ON with factory mode
     private fun setVoltagesAndForceFets() {
         chWrite?.let { w ->
             gatt?.let { g ->
                 isTemporaryLowVoltageMode = true
                 
-                // Step 1: Set cell low voltage cutoff to 2.00V
-                toast("Setting cell low voltage cutoff to 2.00V...")
+                // Step 1: Enter factory mode
+                toast("Entering factory mode...")
                 w.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
-                w.value = CMD_SET_LOW_VOLTAGE_2V
+                w.value = CMD_ENTER_FACTORY_MODE
                 g.writeCharacteristic(w)
+                isInFactoryMode = true
                 
                 handler.postDelayed({
-                    // Step 2: Set pack low voltage cutoff to 16.0V
-                    toast("Setting pack low voltage cutoff to 16.0V...")
+                    // Step 2: Set cell low voltage cutoff to 2.00V
+                    toast("Setting cell low voltage cutoff to 2.00V...")
                     w.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
-                    w.value = CMD_SET_PACK_LOW_VOLTAGE_16V
+                    w.value = CMD_SET_LOW_VOLTAGE_2V
                     g.writeCharacteristic(w)
                     
                     handler.postDelayed({
-                        // Step 3: Set pack low voltage release to 16.8V
-                        toast("Setting pack low voltage release to 16.8V...")
+                        // Step 3: Set pack low voltage cutoff to 16.0V
+                        toast("Setting pack low voltage cutoff to 16.0V...")
                         w.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
-                        w.value = CMD_SET_PACK_LOW_VOLTAGE_RELEASE_16_8V
+                        w.value = CMD_SET_PACK_LOW_VOLTAGE_16V
                         g.writeCharacteristic(w)
                         
                         handler.postDelayed({
-                            // Step 4: Force FETs ON
-                            toast("Forcing both FETs ON...")
+                            // Step 4: Set pack low voltage release to 16.8V
+                            toast("Setting pack low voltage release to 16.8V...")
                             w.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
-                            w.value = CMD_FET_FORCE_ON
+                            w.value = CMD_SET_PACK_LOW_VOLTAGE_RELEASE_16_8V
                             g.writeCharacteristic(w)
                             
-                            // Step 5: Schedule revert to normal voltages after 20 seconds
                             handler.postDelayed({
-                                revertToNormalVoltages()
-                            }, 20000) // 20 seconds
+                                // Step 5: Exit factory mode
+                                toast("Exiting factory mode...")
+                                w.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
+                                w.value = CMD_EXIT_FACTORY_MODE
+                                g.writeCharacteristic(w)
+                                isInFactoryMode = false
+                                
+                                handler.postDelayed({
+                                    // Step 6: Force FETs ON
+                                    toast("Forcing both FETs ON...")
+                                    w.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
+                                    w.value = CMD_FET_FORCE_ON
+                                    g.writeCharacteristic(w)
+                                    
+                                    // Step 7: Schedule revert to normal voltages after 20 seconds
+                                    handler.postDelayed({
+                                        revertToNormalVoltages()
+                                    }, 20000) // 20 seconds
+                                    
+                                    // Step 8: Force an immediate status update
+                                    handler.postDelayed({
+                                        chWrite?.let { w2 ->
+                                            gatt?.let { g2 ->
+                                                w2.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
+                                                w2.value = CMD_BASIC_INFO
+                                                g2.writeCharacteristic(w2)
+                                            }
+                                        }
+                                    }, 500)
+                                    
+                                }, 300) // Wait before FET command
+                            }, 300) // Wait before exit factory mode
+                        }, 300) // Wait before pack release voltage
+                    }, 300) // Wait before pack cutoff voltage
+                }, 300) // Wait before cell voltage
+            } ?: run {
+                toast("Not connected to BMS")
+                fetSwitch.isChecked = false
+                isTemporaryLowVoltageMode = false
+                isInFactoryMode = false
+            }
+        } ?: run {
+            toast("Not connected to BMS")
+            fetSwitch.isChecked = false
+            isTemporaryLowVoltageMode = false
+            isInFactoryMode = false
+        }
+    }
+
+    // Function to revert to normal voltage settings with factory mode
+    private fun revertToNormalVoltages() {
+        chWrite?.let { w ->
+            gatt?.let { g ->
+                // Step 1: Enter factory mode
+                toast("Entering factory mode to restore voltages...")
+                w.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
+                w.value = CMD_ENTER_FACTORY_MODE
+                g.writeCharacteristic(w)
+                isInFactoryMode = true
+                
+                handler.postDelayed({
+                    // Step 2: Set pack low voltage cutoff to 21.7V
+                    toast("Setting pack low voltage cutoff to 21.7V...")
+                    w.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
+                    w.value = CMD_SET_PACK_LOW_VOLTAGE_21_7V
+                    g.writeCharacteristic(w)
+                    
+                    handler.postDelayed({
+                        // Step 3: Set pack low voltage release to 22.4V
+                        toast("Setting pack low voltage release to 22.4V...")
+                        w.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
+                        w.value = CMD_SET_PACK_LOW_VOLTAGE_RELEASE_22_4V
+                        g.writeCharacteristic(w)
+                        
+                        handler.postDelayed({
+                            // Step 4: Exit factory mode
+                            toast("Exiting factory mode...")
+                            w.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
+                            w.value = CMD_EXIT_FACTORY_MODE
+                            g.writeCharacteristic(w)
+                            isInFactoryMode = false
                             
-                            // Step 6: Force an immediate status update
+                            // Step 5: Update status
                             handler.postDelayed({
                                 chWrite?.let { w2 ->
                                     gatt?.let { g2 ->
@@ -416,54 +501,13 @@ class MeterActivity : AppCompatActivity() {
                                         g2.writeCharacteristic(w2)
                                     }
                                 }
+                                isTemporaryLowVoltageMode = false
+                                toast("Normal voltage settings restored")
                             }, 500)
                             
-                        }, 300) // Wait 300ms between commands
-                    }, 300)
-                }, 300)
-            } ?: run {
-                toast("Not connected to BMS")
-                fetSwitch.isChecked = false
-                isTemporaryLowVoltageMode = false
-            }
-        } ?: run {
-            toast("Not connected to BMS")
-            fetSwitch.isChecked = false
-            isTemporaryLowVoltageMode = false
-        }
-    }
-
-    // Function to revert to normal voltage settings
-    private fun revertToNormalVoltages() {
-        chWrite?.let { w ->
-            gatt?.let { g ->
-                toast("Reverting to normal voltage settings...")
-                
-                // Step 1: Set pack low voltage cutoff to 21.7V
-                w.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
-                w.value = CMD_SET_PACK_LOW_VOLTAGE_21_7V
-                g.writeCharacteristic(w)
-                
-                handler.postDelayed({
-                    // Step 2: Set pack low voltage release to 22.4V
-                    w.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
-                    w.value = CMD_SET_PACK_LOW_VOLTAGE_RELEASE_22_4V
-                    g.writeCharacteristic(w)
-                    
-                    // Step 3: Update status
-                    handler.postDelayed({
-                        chWrite?.let { w2 ->
-                            gatt?.let { g2 ->
-                                w2.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
-                                w2.value = CMD_BASIC_INFO
-                                g2.writeCharacteristic(w2)
-                            }
-                        }
-                        isTemporaryLowVoltageMode = false
-                        toast("Normal voltage settings restored")
-                    }, 500)
-                    
-                }, 300)
+                        }, 300) // Wait before exit factory mode
+                    }, 300) // Wait before pack release voltage
+                }, 300) // Wait before pack cutoff voltage
             }
         }
     }
@@ -643,6 +687,7 @@ class MeterActivity : AppCompatActivity() {
         lastChargeFET = false
         lastDischargeFET = false
         isTemporaryLowVoltageMode = false
+        isInFactoryMode = false
 
         scanning = true
         toast("Scanning for ${SCAN_MS/1000}s...")
@@ -695,6 +740,7 @@ class MeterActivity : AppCompatActivity() {
         lastChargeFET = false
         lastDischargeFET = false
         isTemporaryLowVoltageMode = false
+        isInFactoryMode = false
         
         gatt = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M)
             device.connectGatt(this, false, gattCb, BluetoothDevice.TRANSPORT_LE)
@@ -703,6 +749,18 @@ class MeterActivity : AppCompatActivity() {
     }
 
     private fun disconnectFromCurrentDevice() {
+        // Ensure we exit factory mode before disconnecting
+        if (isInFactoryMode) {
+            chWrite?.let { w ->
+                gatt?.let { g ->
+                    w.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
+                    w.value = CMD_EXIT_FACTORY_MODE
+                    g.writeCharacteristic(w)
+                }
+            }
+            isInFactoryMode = false
+        }
+        
         handler.removeCallbacks(pollTask)
         chNotify = null
         chWrite = null
@@ -869,13 +927,17 @@ class MeterActivity : AppCompatActivity() {
             thermometerView.setTemperature(tempValue)
             
             // Update FET status display with more detailed information
-            val voltageStatus = if (isTemporaryLowVoltageMode) " (Low Voltage Mode)" else ""
+            val modeStatus = when {
+                isInFactoryMode -> " (Factory Mode)"
+                isTemporaryLowVoltageMode -> " (Low Voltage Mode)"
+                else -> ""
+            }
             val fetStatusText = buildString {
                 append("Charge: ")
                 append(if (chargeFET) "ON" else "OFF")
                 append(" | Discharge: ")
                 append(if (dischargeFET) "ON" else "OFF")
-                append(voltageStatus)
+                append(modeStatus)
                 
                 // Optionally show current limit status if needed
                 if (chargeCurrentLimit || dischargeCurrentLimit) {
@@ -921,6 +983,17 @@ class MeterActivity : AppCompatActivity() {
     }
     private fun toast(msg: String) = Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
     override fun onDestroy() {
+        // Ensure we exit factory mode before closing app
+        if (isInFactoryMode) {
+            chWrite?.let { w ->
+                gatt?.let { g ->
+                    w.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
+                    w.value = CMD_EXIT_FACTORY_MODE
+                    g.writeCharacteristic(w)
+                }
+            }
+        }
+        
         stopScan()
         handler.removeCallbacks(pollTask)
         disconnectFromCurrentDevice()
