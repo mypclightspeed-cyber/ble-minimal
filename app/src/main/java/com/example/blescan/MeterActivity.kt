@@ -204,7 +204,7 @@ class MeterActivity : AppCompatActivity() {
         // Increase the height of the device list for better visibility
         list = ListView(this).apply {
             layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, 400 // Increased height
+                LinearLayout.LayoutParams.MATCH_PARENT, 200 // Increased height
             )
         }
 
