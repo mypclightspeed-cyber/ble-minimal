@@ -74,6 +74,22 @@ class MeterActivity : AppCompatActivity() {
         )
     }
 
+    private fun createReadCommand(register: Int): ByteArray {
+        // For read commands: length is 0, checksum = 0x10000 - (register + 0)
+        val sum = register + 0
+        val checksum = (0x10000 - sum) and 0xFFFF
+        
+        return byteArrayOf(
+            JBD_START,
+            JBD_READ,
+            register.toByte(),
+            0x00,  // length = 0 for read
+            ((checksum shr 8) and 0xFF).toByte(),
+            (checksum and 0xFF).toByte(),
+            JBD_END
+        )
+    }
+
     private fun parseResponse(data: ByteArray): Triple<Boolean, Int, ByteArray>? {
         if (data.size < 7) {
             addDebugLog("❌ Response too short: ${data.size} bytes")
@@ -132,6 +148,11 @@ class MeterActivity : AppCompatActivity() {
     private lateinit var debugText: TextView
     private lateinit var btnShowDebug: Button
 
+    // EEPROM write dialog
+    private var eepromWriteDialog: AlertDialog? = null
+    private var eepromWriteProgress: ProgressBar? = null
+    private var eepromWriteMessage: TextView? = null
+
     private lateinit var adapterLv: ArrayAdapter<String>
     private val rows = mutableListOf<String>()                     // "MAC  Name"
     private val devices = LinkedHashMap<String, BluetoothDevice>() // MAC -> device
@@ -154,6 +175,7 @@ class MeterActivity : AppCompatActivity() {
     // EEPROM write state management
     private var isWritingEEPROM = false
     private var eepromWriteStep = 0
+    private var eepromWriteSuccess = false
 
     // periodic polling while connected
     private val pollIntervalMs = 1000L
@@ -437,8 +459,9 @@ class MeterActivity : AppCompatActivity() {
         val alertDialog = AlertDialog.Builder(this)
             .setView(dialogView)
             .setPositiveButton("Write to EEPROM") { dialog, _ ->
-                writeCellVoltageSettings()
                 dialog.dismiss()
+                showEepromWriteProgressDialog()
+                writeCellVoltageSettings()
             }
             .setNegativeButton("Cancel") { dialog, _ ->
                 dialog.dismiss()
@@ -448,9 +471,67 @@ class MeterActivity : AppCompatActivity() {
         alertDialog.show()
     }
 
+    private fun showEepromWriteProgressDialog() {
+        val dialogView = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(32, 32, 32, 32)
+        }
+
+        val title = TextView(this).apply {
+            text = "Writing EEPROM Settings"
+            textSize = 18f
+            setTypeface(Typeface.DEFAULT, Typeface.BOLD)
+            setTextColor(Color.BLACK)
+            gravity = Gravity.CENTER
+        }
+        dialogView.addView(title)
+
+        eepromWriteProgress = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
+            isIndeterminate = true
+            setPadding(0, 32, 0, 32)
+        }
+        dialogView.addView(eepromWriteProgress)
+
+        eepromWriteMessage = TextView(this).apply {
+            text = "Please wait... Writing cell voltage settings to EEPROM\n\nThis may take up to 30 seconds..."
+            textSize = 14f
+            setTextColor(Color.DKGRAY)
+            gravity = Gravity.CENTER
+            setPadding(0, 16, 0, 0)
+        }
+        dialogView.addView(eepromWriteMessage)
+
+        eepromWriteDialog = AlertDialog.Builder(this)
+            .setView(dialogView)
+            .setCancelable(false)
+            .create()
+
+        eepromWriteDialog?.show()
+    }
+
+    private fun updateEepromWriteProgress(message: String) {
+        runOnUiThread {
+            eepromWriteMessage?.text = message
+        }
+    }
+
+    private fun hideEepromWriteProgressDialog(success: Boolean) {
+        runOnUiThread {
+            eepromWriteDialog?.dismiss()
+            eepromWriteDialog = null
+            
+            if (success) {
+                toast("EEPROM write completed successfully!")
+            } else {
+                toast("EEPROM write failed! Settings may revert.")
+            }
+        }
+    }
+
     private fun writeCellVoltageSettings() {
         if (gatt == null || chWrite == null) {
             toast("Not connected to BMS")
+            hideEepromWriteProgressDialog(false)
             return
         }
 
@@ -460,6 +541,7 @@ class MeterActivity : AppCompatActivity() {
         // Set EEPROM write flag to stop polling
         isWritingEEPROM = true
         eepromWriteStep = 1
+        eepromWriteSuccess = false
         
         // Clear UI values to indicate write mode
         runOnUiThread {
@@ -479,6 +561,7 @@ class MeterActivity : AppCompatActivity() {
     private fun executeEepromWriteSequence() {
         when (eepromWriteStep) {
             1 -> {
+                updateEepromWriteProgress("Step 1/4: Entering factory mode...")
                 addDebugLog("Step 1: Entering factory mode...")
                 
                 // Enter factory mode first - using the exact command you provided
@@ -486,13 +569,14 @@ class MeterActivity : AppCompatActivity() {
                 addDebugLog("Sent: Enter Factory Mode")
                 addDebugLog("Command: ${bytesToHex(CMD_ENTER_FACTORY)}")
                 
-                // Wait 2 seconds for response and BMS processing
+                // Wait 3 seconds for response and BMS processing
                 handler.postDelayed({
                     eepromWriteStep = 2
                     executeEepromWriteSequence()
-                }, 2000)
+                }, 3000)
             }
             2 -> {
+                updateEepromWriteProgress("Step 2/4: Writing cell undervoltage protection (2.0V)...")
                 addDebugLog("Step 2: Writing cell undervoltage protection...")
                 
                 // Write cell undervoltage protection (2.0V = 2000mV)
@@ -502,13 +586,14 @@ class MeterActivity : AppCompatActivity() {
                 addDebugLog("Sent: Cell Undervoltage Protection = 2.0V")
                 addDebugLog("Command: ${bytesToHex(undervoltageCmd)}")
                 
-                // Wait 2 seconds for response
+                // Wait 3 seconds for response
                 handler.postDelayed({
                     eepromWriteStep = 3
                     executeEepromWriteSequence()
-                }, 2000)
+                }, 3000)
             }
             3 -> {
+                updateEepromWriteProgress("Step 3/4: Writing cell undervoltage release (2.1V)...")
                 addDebugLog("Step 3: Writing cell undervoltage release...")
                 
                 // Write cell undervoltage release (2.1V = 2100mV)
@@ -518,44 +603,55 @@ class MeterActivity : AppCompatActivity() {
                 addDebugLog("Sent: Cell Undervoltage Release = 2.1V")
                 addDebugLog("Command: ${bytesToHex(undervoltageReleaseCmd)}")
                 
-                // Wait 2 seconds for response
+                // Wait 3 seconds for response
                 handler.postDelayed({
                     eepromWriteStep = 4
                     executeEepromWriteSequence()
-                }, 2000)
+                }, 3000)
             }
             4 -> {
+                updateEepromWriteProgress("Step 4/4: Exiting factory mode and committing changes...")
                 addDebugLog("Step 4: Exiting factory mode...")
                 
                 writeToCharacteristic(CMD_EXIT_FACTORY)
                 addDebugLog("Sent: Exit Factory Mode")
                 addDebugLog("Command: ${bytesToHex(CMD_EXIT_FACTORY)}")
                 
-                // Final delay before resuming normal operation
+                // Wait 5 seconds for EEPROM commit
                 handler.postDelayed({
                     addDebugLog("EEPROM write process completed!")
-                    addDebugLog("Resuming normal polling...")
                     
-                    // Clear EEPROM write flag to resume polling
-                    isWritingEEPROM = false
-                    eepromWriteStep = 0
+                    // Mark as successful
+                    eepromWriteSuccess = true
                     
-                    toast("Cell voltage settings written to EEPROM")
+                    // Wait additional 10 seconds to ensure settings are committed
+                    updateEepromWriteProgress("EEPROM write completed! Waiting for settings to stabilize...")
                     
-                    // Send basic info command to refresh data after 1 second
                     handler.postDelayed({
-                        if (!isWritingEEPROM) {
-                            chWrite?.let { w ->
-                                gatt?.let { g ->
-                                    w.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
-                                    w.value = CMD_BASIC_INFO
-                                    g.writeCharacteristic(w)
+                        addDebugLog("Resuming normal polling...")
+                        
+                        // Clear EEPROM write flag to resume polling
+                        isWritingEEPROM = false
+                        eepromWriteStep = 0
+                        
+                        hideEepromWriteProgressDialog(true)
+                        
+                        // Send basic info command to refresh data
+                        handler.postDelayed({
+                            if (!isWritingEEPROM) {
+                                chWrite?.let { w ->
+                                    gatt?.let { g ->
+                                        w.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
+                                        w.value = CMD_BASIC_INFO
+                                        g.writeCharacteristic(w)
+                                    }
                                 }
                             }
-                        }
-                    }, 1000)
+                        }, 1000)
+                        
+                    }, 10000) // Wait 10 seconds for stabilization
                     
-                }, 2000)
+                }, 5000) // Wait 5 seconds after exit factory mode
             }
         }
     }
