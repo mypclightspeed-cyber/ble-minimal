@@ -36,7 +36,7 @@ class MeterActivity : AppCompatActivity() {
     private val AMITIS_WRITE_CH = uuid("0000ff02")  // write
     private val CMD_BASIC_INFO = hex("DD A5 03 00 FF FD 77")
 
-    // EEPROM Write Commands
+    // EEPROM Write Commands - CORRECTED based on JBD protocol
     private val CMD_ENTER_FACTORY = hex("DD 5A 00 02 56 78 2A 77")
     private val CMD_EXIT_FACTORY = hex("DD 5A 01 02 28 28 D0 77")
     
@@ -44,28 +44,78 @@ class MeterActivity : AppCompatActivity() {
     private val REG_CELL_UNDERVOLTAGE_PROTECTION = 0x26
     private val REG_CELL_UNDERVOLTAGE_RELEASE = 0x27
 
-    private fun cmdReadRegister(reg: Int): ByteArray {
-        val r = reg and 0xFF
-        val chk = (0x10000 - (r + 0)) and 0xFFFF
-        return byteArrayOf(
-            0xDD.toByte(), 0xA5.toByte(), r.toByte(), 0x00,
-            ((chk shr 8) and 0xFF).toByte(), (chk and 0xFF).toByte(), 0x77.toByte()
-        )
+    // JBD Protocol Constants
+    private val JBD_START: Byte = 0xDD.toByte()
+    private val JBD_END: Byte = 0x77.toByte()
+    private val JBD_READ: Byte = 0xA5.toByte()
+    private val JBD_WRITE: Byte = 0x5A.toByte()
+
+    private fun calculateChecksum(data: ByteArray): Int {
+        var sum = 0
+        for (byte in data) {
+            sum += byte.toInt() and 0xFF
+        }
+        return (0x10000 - sum) and 0xFFFF
     }
 
-    private fun cmdWriteRegister(reg: Int, value: Int): ByteArray {
-        val r = reg and 0xFF
+    private fun createWriteCommand(register: Int, value: Int): ByteArray {
         val data = byteArrayOf(
             ((value shr 8) and 0xFF).toByte(),
             (value and 0xFF).toByte()
         )
-        val sum = r + data.size + data[0].toInt() and 0xFF + data[1].toInt() and 0xFF
-        val chk = (0x10000 - sum) and 0xFFFF
+        
+        val payload = byteArrayOf(
+            register.toByte(),
+            data.size.toByte()
+        ) + data
+        
+        val checksum = calculateChecksum(payload)
+        
         return byteArrayOf(
-            0xDD.toByte(), 0x5A.toByte(), r.toByte(), data.size.toByte(),
-            data[0], data[1],
-            ((chk shr 8) and 0xFF).toByte(), (chk and 0xFF).toByte(), 0x77.toByte()
+            JBD_START,
+            JBD_WRITE,
+            *payload,
+            ((checksum shr 8) and 0xFF).toByte(),
+            (checksum and 0xFF).toByte(),
+            JBD_END
         )
+    }
+
+    private fun parseResponse(data: ByteArray): Triple<Boolean, Int, ByteArray>? {
+        if (data.size < 7) {
+            addDebugLog("❌ Response too short: ${data.size} bytes")
+            return null
+        }
+        
+        if (data[0] != JBD_START || data[data.size - 1] != JBD_END) {
+            addDebugLog("❌ Invalid response frame")
+            return null
+        }
+        
+        val command = data[1].toInt() and 0xFF
+        val status = data[2].toInt() and 0xFF
+        val length = data[3].toInt() and 0xFF
+        
+        if (data.size < 4 + length + 3) {
+            addDebugLog("❌ Insufficient data for length $length")
+            return null
+        }
+        
+        val payload = data.copyOfRange(4, 4 + length)
+        val checksumStart = 4 + length
+        val receivedChecksum = ((data[checksumStart].toInt() and 0xFF) shl 8) or (data[checksumStart + 1].toInt() and 0xFF)
+        
+        // Calculate expected checksum
+        val checksumData = byteArrayOf(status.toByte(), length.toByte()) + payload
+        val expectedChecksum = calculateChecksum(checksumData)
+        
+        if (receivedChecksum != expectedChecksum) {
+            addDebugLog("❌ Checksum mismatch: received=0x${receivedChecksum.toString(16)}, expected=0x${expectedChecksum.toString(16)}")
+            return null
+        }
+        
+        val success = status == 0x00
+        return Triple(success, command, payload)
     }
 
     // --- UI ---
@@ -106,6 +156,7 @@ class MeterActivity : AppCompatActivity() {
 
     // EEPROM write state management
     private var isWritingEEPROM = false
+    private var eepromWriteStep = 0
 
     // periodic polling while connected
     private val pollIntervalMs = 1000L
@@ -411,6 +462,7 @@ class MeterActivity : AppCompatActivity() {
         
         // Set EEPROM write flag to stop polling
         isWritingEEPROM = true
+        eepromWriteStep = 1
         
         // Clear UI values to indicate write mode
         runOnUiThread {
@@ -428,50 +480,83 @@ class MeterActivity : AppCompatActivity() {
     }
 
     private fun executeEepromWriteSequence() {
-        addDebugLog("Step 1: Entering factory mode...")
-        
-        // Enter factory mode first
-        writeToCharacteristic(CMD_ENTER_FACTORY)
-        addDebugLog("Sent: Enter Factory Mode")
-        
-        // Wait 1 second then write the settings
-        handler.postDelayed({
-            addDebugLog("Step 2: Writing cell undervoltage protection...")
-            
-            // Write cell undervoltage protection (2.0V = 2000mV)
-            val undervoltageCmd = cmdWriteRegister(REG_CELL_UNDERVOLTAGE_PROTECTION, 2000)
-            writeToCharacteristic(undervoltageCmd)
-            addDebugLog("Sent: Cell Undervoltage Protection = 2.0V")
-            
-            handler.postDelayed({
+        when (eepromWriteStep) {
+            1 -> {
+                addDebugLog("Step 1: Entering factory mode...")
+                
+                // Enter factory mode first
+                writeToCharacteristic(CMD_ENTER_FACTORY)
+                addDebugLog("Sent: Enter Factory Mode")
+                
+                // Wait 1.5 seconds for response
+                handler.postDelayed({
+                    eepromWriteStep = 2
+                    executeEepromWriteSequence()
+                }, 1500)
+            }
+            2 -> {
+                addDebugLog("Step 2: Writing cell undervoltage protection...")
+                
+                // Write cell undervoltage protection (2.0V = 2000mV)
+                val undervoltageCmd = createWriteCommand(REG_CELL_UNDERVOLTAGE_PROTECTION, 2000)
+                writeToCharacteristic(undervoltageCmd)
+                addDebugLog("Sent: Cell Undervoltage Protection = 2.0V")
+                addDebugLog("Command: ${bytesToHex(undervoltageCmd)}")
+                
+                // Wait 1.5 seconds for response
+                handler.postDelayed({
+                    eepromWriteStep = 3
+                    executeEepromWriteSequence()
+                }, 1500)
+            }
+            3 -> {
                 addDebugLog("Step 3: Writing cell undervoltage release...")
                 
                 // Write cell undervoltage release (2.1V = 2100mV)
-                val undervoltageReleaseCmd = cmdWriteRegister(REG_CELL_UNDERVOLTAGE_RELEASE, 2100)
+                val undervoltageReleaseCmd = createWriteCommand(REG_CELL_UNDERVOLTAGE_RELEASE, 2100)
                 writeToCharacteristic(undervoltageReleaseCmd)
                 addDebugLog("Sent: Cell Undervoltage Release = 2.1V")
+                addDebugLog("Command: ${bytesToHex(undervoltageReleaseCmd)}")
                 
-                // Exit factory mode after a delay
+                // Wait 1.5 seconds for response
                 handler.postDelayed({
-                    addDebugLog("Step 4: Exiting factory mode...")
+                    eepromWriteStep = 4
+                    executeEepromWriteSequence()
+                }, 1500)
+            }
+            4 -> {
+                addDebugLog("Step 4: Exiting factory mode...")
+                
+                writeToCharacteristic(CMD_EXIT_FACTORY)
+                addDebugLog("Sent: Exit Factory Mode")
+                
+                // Final delay before resuming normal operation
+                handler.postDelayed({
+                    addDebugLog("EEPROM write process completed!")
+                    addDebugLog("Resuming normal polling...")
                     
-                    writeToCharacteristic(CMD_EXIT_FACTORY)
-                    addDebugLog("Sent: Exit Factory Mode")
+                    // Clear EEPROM write flag to resume polling
+                    isWritingEEPROM = false
+                    eepromWriteStep = 0
                     
-                    // Final delay before resuming normal operation
+                    toast("Cell voltage settings written to EEPROM")
+                    
+                    // Send basic info command to refresh data
                     handler.postDelayed({
-                        addDebugLog("EEPROM write process completed!")
-                        addDebugLog("Resuming normal polling...")
-                        
-                        // Clear EEPROM write flag to resume polling
-                        isWritingEEPROM = false
-                        
-                        toast("Cell voltage settings written to EEPROM")
-                    }, 1000) // Wait 1 second after exit factory mode
+                        if (!isWritingEEPROM) {
+                            chWrite?.let { w ->
+                                gatt?.let { g ->
+                                    w.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
+                                    w.value = CMD_BASIC_INFO
+                                    g.writeCharacteristic(w)
+                                }
+                            }
+                        }
+                    }, 500)
                     
-                }, 1000) // Wait 1 second before exit factory mode
-            }, 1000) // Wait 1 second between writes
-        }, 1000) // Wait 1 second after enter factory mode
+                }, 1500)
+            }
+        }
     }
 
     private fun writeToCharacteristic(data: ByteArray) {
@@ -776,6 +861,20 @@ class MeterActivity : AppCompatActivity() {
             if (ch.uuid == AMITIS_READ_CH) {
                 val data = ch.value ?: return
                 addDebugLog("Received: ${bytesToHex(data)}")
+                
+                // Parse response for EEPROM write operations
+                if (isWritingEEPROM) {
+                    val response = parseResponse(data)
+                    if (response != null) {
+                        val (success, command, payload) = response
+                        if (success) {
+                            addDebugLog("✅ Write successful for command: 0x${command.toString(16)}")
+                        } else {
+                            addDebugLog("❌ Write failed for command: 0x${command.toString(16)}, status: 0x${if (payload.isNotEmpty()) payload[0].toString(16) else "unknown"}")
+                        }
+                    }
+                }
+                
                 onAmitisBytes(data)
             }
         }
