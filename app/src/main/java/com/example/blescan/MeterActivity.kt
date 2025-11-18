@@ -104,15 +104,21 @@ class MeterActivity : AppCompatActivity() {
     // Debug log
     private val debugLog = StringBuilder()
 
+    // EEPROM write state management
+    private var isWritingEEPROM = false
+
     // periodic polling while connected
     private val pollIntervalMs = 1000L
     private val pollTask = object : Runnable {
         override fun run() {
-            chWrite?.let { w ->
-                gatt?.let { g ->
-                    w.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
-                    w.value = CMD_BASIC_INFO
-                    g.writeCharacteristic(w)
+            // Skip polling if we're writing to EEPROM
+            if (!isWritingEEPROM) {
+                chWrite?.let { w ->
+                    gatt?.let { g ->
+                        w.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
+                        w.value = CMD_BASIC_INFO
+                        g.writeCharacteristic(w)
+                    }
                 }
             }
             handler.postDelayed(this, pollIntervalMs)
@@ -171,7 +177,7 @@ class MeterActivity : AppCompatActivity() {
             }
         }
 
-        // Gauge style 3 (modern half-circle) with A1: 180° sweep, start at 180°
+        // Gauge style 3 (modern half-circle) with A1: 180ĪŃ sweep, start at 180ĪŃ
         gauge = ModernHalfGauge(this).apply {
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 380
@@ -231,7 +237,7 @@ class MeterActivity : AppCompatActivity() {
             }
             
             val titleTv = TextView(this).apply {
-                text = "Temperature (°C)"
+                text = "Temperature (ĪŃC)"
                 textSize = 16f
                 setTypeface(Typeface.DEFAULT, Typeface.BOLD)
                 setTextColor(Color.WHITE)
@@ -401,19 +407,45 @@ class MeterActivity : AppCompatActivity() {
         }
 
         addDebugLog("Starting EEPROM write process...")
+        addDebugLog("Stopping periodic polling to avoid data conflicts...")
+        
+        // Set EEPROM write flag to stop polling
+        isWritingEEPROM = true
+        
+        // Clear UI values to indicate write mode
+        runOnUiThread {
+            gauge.setPercent(0)
+            tvVolt.text = "-"
+            tvCurr.text = "-"
+            tvTemp.text = "-"
+            thermometerView.setTemperature(0.0)
+        }
+        
+        // Start the EEPROM write sequence
+        handler.post {
+            executeEepromWriteSequence()
+        }
+    }
+
+    private fun executeEepromWriteSequence() {
+        addDebugLog("Step 1: Entering factory mode...")
         
         // Enter factory mode first
         writeToCharacteristic(CMD_ENTER_FACTORY)
         addDebugLog("Sent: Enter Factory Mode")
         
-        // Wait a bit then write the settings
+        // Wait 1 second then write the settings
         handler.postDelayed({
+            addDebugLog("Step 2: Writing cell undervoltage protection...")
+            
             // Write cell undervoltage protection (2.0V = 2000mV)
             val undervoltageCmd = cmdWriteRegister(REG_CELL_UNDERVOLTAGE_PROTECTION, 2000)
             writeToCharacteristic(undervoltageCmd)
             addDebugLog("Sent: Cell Undervoltage Protection = 2.0V")
             
             handler.postDelayed({
+                addDebugLog("Step 3: Writing cell undervoltage release...")
+                
                 // Write cell undervoltage release (2.1V = 2100mV)
                 val undervoltageReleaseCmd = cmdWriteRegister(REG_CELL_UNDERVOLTAGE_RELEASE, 2100)
                 writeToCharacteristic(undervoltageReleaseCmd)
@@ -421,14 +453,25 @@ class MeterActivity : AppCompatActivity() {
                 
                 // Exit factory mode after a delay
                 handler.postDelayed({
+                    addDebugLog("Step 4: Exiting factory mode...")
+                    
                     writeToCharacteristic(CMD_EXIT_FACTORY)
                     addDebugLog("Sent: Exit Factory Mode")
-                    addDebugLog("EEPROM write process completed!")
                     
-                    toast("Cell voltage settings written to EEPROM")
-                }, 1000)
-            }, 1000)
-        }, 1000)
+                    // Final delay before resuming normal operation
+                    handler.postDelayed({
+                        addDebugLog("EEPROM write process completed!")
+                        addDebugLog("Resuming normal polling...")
+                        
+                        // Clear EEPROM write flag to resume polling
+                        isWritingEEPROM = false
+                        
+                        toast("Cell voltage settings written to EEPROM")
+                    }, 1000) // Wait 1 second after exit factory mode
+                    
+                }, 1000) // Wait 1 second before exit factory mode
+            }, 1000) // Wait 1 second between writes
+        }, 1000) // Wait 1 second after enter factory mode
     }
 
     private fun writeToCharacteristic(data: ByteArray) {
