@@ -593,7 +593,7 @@ class MeterActivity : AppCompatActivity() {
             }
             104 -> {
                 // Calculate and write default pack undervoltage protection
-                val packUndervoltage = (DEFAULT_CELL_UNDERVOLTAGE * cellCount * 10).toInt()
+                val packUndervoltage = (DEFAULT_CELL_UNDERVOLTAGE * cellCount * 100).toInt()
                 val packUndervoltageData = byteArrayOf(
                     ((packUndervoltage shr 8) and 0xFF).toByte(),
                     (packUndervoltage and 0xFF).toByte()
@@ -608,7 +608,7 @@ class MeterActivity : AppCompatActivity() {
             }
             105 -> {
                 // Calculate and write default pack undervoltage release
-                val packUndervoltageRelease = (DEFAULT_CELL_UNDERVOLTAGE_RELEASE * cellCount * 10).toInt()
+                val packUndervoltageRelease = (DEFAULT_CELL_UNDERVOLTAGE_RELEASE * cellCount * 100).toInt()
                 val packUndervoltageReleaseData = byteArrayOf(
                     ((packUndervoltageRelease shr 8) and 0xFF).toByte(),
                     (packUndervoltageRelease and 0xFF).toByte()
