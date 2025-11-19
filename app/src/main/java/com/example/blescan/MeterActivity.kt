@@ -34,7 +34,6 @@ class MeterActivity : AppCompatActivity() {
     private val AMITIS_READ_CH = uuid("0000ff01")   // notify
     private val AMITIS_WRITE_CH = uuid("0000ff02")  // write
     private val CMD_BASIC_INFO = hex("DD A5 03 00 FF FD 77")
-    private val CMD_CELL_INFO = hex("DD A5 04 00 FF FC 77") // Command to read cell info
 
     // JBD Protocol Constants
     private val JBD_START: Byte = 0xDD.toByte()
@@ -45,16 +44,16 @@ class MeterActivity : AppCompatActivity() {
     // Cell voltage protection registers
     private val REG_CELL_UNDERVOLTAGE_PROTECTION = 0x26
     private val REG_CELL_UNDERVOLTAGE_RELEASE = 0x27
-    private val REG_PACK_UNDERVOLTAGE_PROTECTION = 0x21
-    private val REG_PACK_UNDERVOLTAGE_RELEASE = 0x22
-    private val REG_FET_CONTROL = 0xE1
+    private val REG_PACK_UNDERVOLTAGE_PROTECTION = 0x22  // Corrected from 0x21
+    private val REG_PACK_UNDERVOLTAGE_RELEASE = 0x23     // Corrected from 0x22
+    private val REG_FET_CONTROL = 0x24                   // FET control register
 
     // Factory mode commands
     private val CMD_ENTER_FACTORY = hex("DD 5A 00 02 56 78 FF 30 77")
     private val CMD_EXIT_FACTORY = hex("DD 5A 01 02 28 28 D0 77")
 
     // FET Control commands
-    private val CMD_FET_BOTH_ON = hex("DD 5A E1 01 03 21 77")
+    private val CMD_FET_BOTH_ON = hex("DD 5A 24 01 03 1E 77")  // Updated for register 0x24
 
     // Default voltage settings
     private val DEFAULT_CELL_UNDERVOLTAGE = 2.7f
@@ -64,7 +63,6 @@ class MeterActivity : AppCompatActivity() {
 
     // Cell count management
     private var cellCount = 0
-    private var isReadingCellCount = false
 
     // FET Status
     private var fetStatus = "Unknown"
@@ -130,7 +128,7 @@ class MeterActivity : AppCompatActivity() {
     private val pollIntervalMs = 1000L
     private val pollTask = object : Runnable {
         override fun run() {
-            if (!isWritingEEPROM && !isReadingCellCount) {
+            if (!isWritingEEPROM) {
                 chWrite?.let { w ->
                     gatt?.let { g ->
                         w.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
@@ -309,7 +307,7 @@ class MeterActivity : AppCompatActivity() {
                 setPadding(32, 16, 32, 16)
                 textSize = 16f
                 setOnClickListener {
-                    readCellCountAndShowDialog()
+                    showWriteEepromDialog()
                 }
             }
             
@@ -372,35 +370,17 @@ class MeterActivity : AppCompatActivity() {
         }
     }
 
-    private fun readCellCountAndShowDialog() {
+    private fun showWriteEepromDialog() {
         if (gatt == null || chWrite == null) {
             toast("Not connected to BMS")
             return
         }
 
-        isReadingCellCount = true
-
-        // Send cell info command to get cell count
-        chWrite?.let { w ->
-            gatt?.let { g ->
-                w.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
-                w.value = CMD_CELL_INFO
-                g.writeCharacteristic(w)
-            }
+        if (cellCount == 0) {
+            toast("Cell count not available yet")
+            return
         }
 
-        // Wait for response and then show dialog
-        handler.postDelayed({
-            isReadingCellCount = false
-            if (cellCount > 0) {
-                showWriteEepromDialog()
-            } else {
-                toast("Failed to read cell configuration")
-            }
-        }, 3000)
-    }
-
-    private fun showWriteEepromDialog() {
         val dialogView = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(32, 32, 32, 32)
@@ -422,7 +402,8 @@ class MeterActivity : AppCompatActivity() {
         val defaultPackUndervoltageRelease = (DEFAULT_CELL_UNDERVOLTAGE_RELEASE * cellCount * 10).toInt()
 
         val infoText = TextView(this).apply {
-            text = "Initial Settings (30 seconds):\n" +
+            text = "Detected: ${cellCount}S Configuration\n\n" +
+                    "Initial Settings (30 seconds):\n" +
                     "¨¹6¡±1 Cell Low Voltage Cutoff: ${TEMP_CELL_UNDERVOLTAGE}V\n" +
                     "¨¹6¡±1 Cell Low Voltage Release: ${TEMP_CELL_UNDERVOLTAGE_RELEASE}V\n" +
                     "¨¹6¡±1 Pack Low Voltage Cutoff: ${packUndervoltage / 10.0}V\n" +
@@ -1025,16 +1006,15 @@ class MeterActivity : AppCompatActivity() {
                 val got = (chkHi shl 8) or chkLo
                 if (expected != got || status != 0) continue
 
-                when (reg) {
-                    0x03 -> handleBasicInfo(payload)
-                    0x04 -> handleCellInfo(payload)
-                }
+                if (reg == 0x03) handleBasicInfo(payload)
             }
         }
     }
 
     private fun handleBasicInfo(p: ByteArray) {
-        if (p.size < 24) return
+        if (p.size < 38) return // Ensure we have enough data for register 0x25
+        
+        // Extract basic info
         val vRaw = ((p[0].toInt() and 0xFF) shl 8) or (p[1].toInt() and 0xFF)
         val iRawU = ((p[2].toInt() and 0xFF) shl 8) or (p[3].toInt() and 0xFF)
         var iRaw = iRawU
@@ -1043,6 +1023,15 @@ class MeterActivity : AppCompatActivity() {
         val current = iRaw / 100.0
         val soc = p[19].toInt() and 0xFF
 
+        // Extract cell count from register 0x25 (position 37 in payload)
+        val newCellCount = p[37].toInt() and 0xFF
+        
+        if (newCellCount > 0 && newCellCount <= 24 && newCellCount != cellCount) {
+            cellCount = newCellCount
+            toast("Detected ${cellCount}S configuration")
+        }
+
+        // Extract temperature
         val dataStart = 4
         var tempValue = 0.0
         var tempText = "-"
@@ -1064,17 +1053,6 @@ class MeterActivity : AppCompatActivity() {
             tvCurr.text = String.format("%.3f", current)
             tvTemp.text = tempText
             thermometerView.setTemperature(tempValue)
-        }
-    }
-
-    private fun handleCellInfo(p: ByteArray) {
-        if (p.size < 3) return
-        
-        val newCellCount = p[0].toInt() and 0xFF
-        
-        if (newCellCount > 0 && newCellCount <= 24) {
-            cellCount = newCellCount
-            // Cell count read in background, no UI display
         }
     }
 
