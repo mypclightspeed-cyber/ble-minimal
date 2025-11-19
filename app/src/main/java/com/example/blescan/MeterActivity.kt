@@ -396,10 +396,10 @@ class MeterActivity : AppCompatActivity() {
         dialogView.addView(title)
 
         // Calculate pack voltages based on cell count
-        val packUndervoltage = (TEMP_CELL_UNDERVOLTAGE * cellCount * 10).toInt()
-        val packUndervoltageRelease = (TEMP_CELL_UNDERVOLTAGE_RELEASE * cellCount * 10).toInt()
-        val defaultPackUndervoltage = (DEFAULT_CELL_UNDERVOLTAGE * cellCount * 10).toInt()
-        val defaultPackUndervoltageRelease = (DEFAULT_CELL_UNDERVOLTAGE_RELEASE * cellCount * 10).toInt()
+        val packUndervoltage = (TEMP_CELL_UNDERVOLTAGE * cellCount * 100).toInt()
+        val packUndervoltageRelease = (TEMP_CELL_UNDERVOLTAGE_RELEASE * cellCount * 100).toInt()
+        val defaultPackUndervoltage = (DEFAULT_CELL_UNDERVOLTAGE * cellCount * 100).toInt()
+        val defaultPackUndervoltageRelease = (DEFAULT_CELL_UNDERVOLTAGE_RELEASE * cellCount * 100).toInt()
 
         val infoText = TextView(this).apply {
             text = "Detected: ${cellCount}S Configuration\n\n" +
