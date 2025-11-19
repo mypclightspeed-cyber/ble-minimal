@@ -13,7 +13,6 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
-import android.text.method.ScrollingMovementMethod
 import android.view.Gravity
 import android.view.View
 import android.widget.*
@@ -45,13 +44,30 @@ class MeterActivity : AppCompatActivity() {
     // Cell voltage protection registers
     private val REG_CELL_UNDERVOLTAGE_PROTECTION = 0x26
     private val REG_CELL_UNDERVOLTAGE_RELEASE = 0x27
+    private val REG_PACK_UNDERVOLTAGE_PROTECTION = 0x22  // Corrected from 0x21
+    private val REG_PACK_UNDERVOLTAGE_RELEASE = 0x23     // Corrected from 0x22
+    private val REG_FET_CONTROL = 0x24                   // FET control register
 
-    // Factory mode commands - CORRECTED based on your working command
+    // Factory mode commands
     private val CMD_ENTER_FACTORY = hex("DD 5A 00 02 56 78 FF 30 77")
     private val CMD_EXIT_FACTORY = hex("DD 5A 01 02 28 28 D0 77")
 
+    // FET Control commands
+    private val CMD_FET_BOTH_ON = hex("DD 5A 24 01 03 1E 77")  // Updated for register 0x24
+
+    // Default voltage settings
+    private val DEFAULT_CELL_UNDERVOLTAGE = 2.7f
+    private val DEFAULT_CELL_UNDERVOLTAGE_RELEASE = 2.8f
+    private val TEMP_CELL_UNDERVOLTAGE = 2.0f
+    private val TEMP_CELL_UNDERVOLTAGE_RELEASE = 2.1f
+
+    // Cell count management
+    private var cellCount = 0
+
+    // FET Status
+    private var fetStatus = "Unknown"
+
     private fun calculateChecksumForWrite(register: Int, data: ByteArray): Int {
-        // For write commands: checksum = 0x10000 - (register + length + data bytes)
         var sum = register + data.size
         for (byte in data) {
             sum += byte.toInt() and 0xFF
@@ -74,63 +90,6 @@ class MeterActivity : AppCompatActivity() {
         )
     }
 
-    private fun createReadCommand(register: Int): ByteArray {
-        // For read commands: length is 0, checksum = 0x10000 - (register + 0)
-        val sum = register + 0
-        val checksum = (0x10000 - sum) and 0xFFFF
-        
-        return byteArrayOf(
-            JBD_START,
-            JBD_READ,
-            register.toByte(),
-            0x00,  // length = 0 for read
-            ((checksum shr 8) and 0xFF).toByte(),
-            (checksum and 0xFF).toByte(),
-            JBD_END
-        )
-    }
-
-    private fun parseResponse(data: ByteArray): Triple<Boolean, Int, ByteArray>? {
-        if (data.size < 7) {
-            addDebugLog("❌ Response too short: ${data.size} bytes")
-            return null
-        }
-        
-        if (data[0] != JBD_START || data[data.size - 1] != JBD_END) {
-            addDebugLog("❌ Invalid response frame")
-            return null
-        }
-        
-        val command = data[1].toInt() and 0xFF
-        val status = data[2].toInt() and 0xFF
-        val length = data[3].toInt() and 0xFF
-        
-        if (data.size < 4 + length + 3) {
-            addDebugLog("❌ Insufficient data for length $length")
-            return null
-        }
-        
-        val payload = data.copyOfRange(4, 4 + length)
-        val checksumStart = 4 + length
-        val receivedChecksum = ((data[checksumStart].toInt() and 0xFF) shl 8) or (data[checksumStart + 1].toInt() and 0xFF)
-        
-        // For response: checksum = 0x10000 - (status + length + payload)
-        var sum = status + length
-        for (byte in payload) {
-            sum += byte.toInt() and 0xFF
-        }
-        val expectedChecksum = (0x10000 - sum) and 0xFFFF
-        
-        if (receivedChecksum != expectedChecksum) {
-            addDebugLog("❌ Checksum mismatch: received=0x${receivedChecksum.toString(16).uppercase()}, expected=0x${expectedChecksum.toString(16).uppercase()}")
-            addDebugLog("❌ Calculated from: status=0x${status.toString(16)}, length=0x${length.toString(16)}, payload=${payload.joinToString("") { "%02X".format(it) }}")
-            return null
-        }
-        
-        val success = status == 0x00
-        return Triple(success, command, payload)
-    }
-
     // --- UI ---
     private lateinit var bannerWarn: TextView
     private lateinit var btnScan: Button
@@ -141,17 +100,9 @@ class MeterActivity : AppCompatActivity() {
     private lateinit var tvCurr: TextView
     private lateinit var tvTemp: TextView
     private lateinit var tvName: TextView
+    private lateinit var tvFetStatus: TextView
     private lateinit var thermometerView: ThermometerView
-
-    // Debug window components
-    private lateinit var debugWindow: ScrollView
-    private lateinit var debugText: TextView
-    private lateinit var btnShowDebug: Button
-
-    // EEPROM write dialog
-    private var eepromWriteDialog: AlertDialog? = null
-    private var eepromWriteProgress: ProgressBar? = null
-    private var eepromWriteMessage: TextView? = null
+    private lateinit var btnWriteAndEnable: Button
 
     private lateinit var adapterLv: ArrayAdapter<String>
     private val rows = mutableListOf<String>()                     // "MAC  Name"
@@ -169,19 +120,14 @@ class MeterActivity : AppCompatActivity() {
     private var chWrite: BluetoothGattCharacteristic? = null
     private val rxBuffer = ArrayList<Byte>()
 
-    // Debug log
-    private val debugLog = StringBuilder()
-
     // EEPROM write state management
     private var isWritingEEPROM = false
     private var eepromWriteStep = 0
-    private var eepromWriteSuccess = false
 
     // periodic polling while connected
     private val pollIntervalMs = 1000L
     private val pollTask = object : Runnable {
         override fun run() {
-            // Skip polling if we're writing to EEPROM
             if (!isWritingEEPROM) {
                 chWrite?.let { w ->
                     gatt?.let { g ->
@@ -222,32 +168,7 @@ class MeterActivity : AppCompatActivity() {
         btnScan = Button(this).apply { text = "Scan Amitis BMS" }
         list = ListView(this)
 
-        // Debug window
-        debugText = TextView(this).apply {
-            textSize = 10f
-            setTextColor(Color.BLACK)
-            setBackgroundColor(Color.parseColor("#F0F0F0"))
-            movementMethod = ScrollingMovementMethod()
-            setPadding(8, 8, 8, 8)
-        }
-
-        debugWindow = ScrollView(this).apply {
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, 200
-            ).apply { setMargins(16, 10, 16, 6) }
-            addView(debugText)
-            visibility = View.GONE
-        }
-
-        btnShowDebug = Button(this).apply {
-            text = "Show Debug"
-            setOnClickListener {
-                debugWindow.visibility = if (debugWindow.visibility == View.VISIBLE) View.GONE else View.VISIBLE
-                text = if (debugWindow.visibility == View.VISIBLE) "Hide Debug" else "Show Debug"
-            }
-        }
-
-        // Gauge style 3 (modern half-circle) with A1: 180ĪŃ sweep, start at 180ĪŃ
+        // Gauge style 3 (modern half-circle)
         gauge = ModernHalfGauge(this).apply {
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 380
@@ -307,7 +228,7 @@ class MeterActivity : AppCompatActivity() {
             }
             
             val titleTv = TextView(this).apply {
-                text = "Temperature (ĪŃC)"
+                text = "Temperature (ü0Å7ü0Æ1C)"
                 textSize = 16f
                 setTypeface(Typeface.DEFAULT, Typeface.BOLD)
                 setTextColor(Color.WHITE)
@@ -331,10 +252,10 @@ class MeterActivity : AppCompatActivity() {
             return card to (valueTv to thermometer)
         }
 
-        // Create FET Control card
-        fun makeFetControlCard(): Pair<LinearLayout, LinearLayout> {
+        // Create FET Control & EEPROM card
+        fun makeFetControlCard(): Pair<LinearLayout, Pair<TextView, Button>> {
             val card = LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
+                orientation = LinearLayout.HORIZONTAL
                 setPadding(24, 18, 24, 18)
                 setBackgroundColor(Color.parseColor("#8B5CF6"))
                 val lp = LinearLayout.LayoutParams(
@@ -345,54 +266,72 @@ class MeterActivity : AppCompatActivity() {
                 elevation = 6f
             }
             
-            val titleTv = TextView(this).apply {
-                text = "FET Control & EEPROM"
+            // Left side - FET Status
+            val leftLayout = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                layoutParams = LinearLayout.LayoutParams(
+                    0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f
+                ).apply {
+                    rightMargin = 16
+                }
+            }
+            
+            val statusTitle = TextView(this).apply {
+                text = "FET Status"
                 textSize = 16f
                 setTypeface(Typeface.DEFAULT, Typeface.BOLD)
                 setTextColor(Color.WHITE)
             }
-            card.addView(titleTv)
+            val statusValue = TextView(this).apply {
+                text = "Unknown"
+                textSize = 20f
+                setTextColor(Color.WHITE)
+            }
             
-            val buttonLayout = LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
+            leftLayout.addView(statusTitle)
+            leftLayout.addView(statusValue)
+            
+            // Right side - Control Button
+            val rightLayout = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
                 layoutParams = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+                    LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT
                 )
                 gravity = Gravity.CENTER
             }
             
-            val btnWriteEEPROM = Button(this).apply {
-                text = "Write Cell Voltages"
+            val controlButton = Button(this).apply {
+                text = "Force ON"
                 setBackgroundColor(Color.parseColor("#DC2626"))
                 setTextColor(Color.WHITE)
-                setPadding(16, 8, 16, 8)
-                layoutParams = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT
-                ).apply {
-                    setMargins(8, 8, 8, 8)
-                }
+                setPadding(32, 16, 32, 16)
+                textSize = 16f
                 setOnClickListener {
                     showWriteEepromDialog()
                 }
             }
             
-            buttonLayout.addView(btnWriteEEPROM)
-            card.addView(buttonLayout)
+            rightLayout.addView(controlButton)
             
-            return card to buttonLayout
+            card.addView(leftLayout)
+            card.addView(rightLayout)
+            
+            return card to (statusValue to controlButton)
         }
 
         val (cardName, nameValue) = makeCard("Device", "#3B82F6")
         val (cardVolt, voltValue) = makeCard("Voltage (V)", "#10B981")
         val (cardCurr, currValue) = makeCard("Current (A)", "#DC143C")
         val (cardTemp, tempPair) = makeThermometerCard()
-        val (fetControlCard, fetButtonLayout) = makeFetControlCard()
+        val (fetControlCard, fetPair) = makeFetControlCard()
         
         tvVolt = voltValue
         tvCurr = currValue
         tvTemp = tempPair.first
         thermometerView = tempPair.second
         tvName = nameValue
+        tvFetStatus = fetPair.first
+        btnWriteAndEnable = fetPair.second
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -402,8 +341,6 @@ class MeterActivity : AppCompatActivity() {
             addView(btnScan)
             addView(list, LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
-            addView(btnShowDebug)
-            addView(debugWindow)
             addView(gauge)
             addView(cardName)
             addView(cardVolt)
@@ -434,13 +371,23 @@ class MeterActivity : AppCompatActivity() {
     }
 
     private fun showWriteEepromDialog() {
+        if (gatt == null || chWrite == null) {
+            toast("Not connected to BMS")
+            return
+        }
+
+        if (cellCount == 0) {
+            toast("Cell count not available yet")
+            return
+        }
+
         val dialogView = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(32, 32, 32, 32)
         }
 
         val title = TextView(this).apply {
-            text = "Write Cell Voltage Settings to EEPROM"
+            text = "Write Cell & Pack Voltage Settings"
             textSize = 18f
             setTypeface(Typeface.DEFAULT, Typeface.BOLD)
             setTextColor(Color.BLACK)
@@ -448,8 +395,23 @@ class MeterActivity : AppCompatActivity() {
         }
         dialogView.addView(title)
 
+        // Calculate pack voltages based on cell count
+        val packUndervoltage = (TEMP_CELL_UNDERVOLTAGE * cellCount * 100).toInt()
+        val packUndervoltageRelease = (TEMP_CELL_UNDERVOLTAGE_RELEASE * cellCount * 100).toInt()
+        val defaultPackUndervoltage = (DEFAULT_CELL_UNDERVOLTAGE * cellCount * 100).toInt()
+        val defaultPackUndervoltageRelease = (DEFAULT_CELL_UNDERVOLTAGE_RELEASE * cellCount * 100).toInt()
+
         val infoText = TextView(this).apply {
-            text = "This will write:\n• Cell Low Voltage Cutoff: 2.0V\n• Cell Low Voltage Release: 2.1V\n\nMake sure BMS is connected!"
+            text = "Detected: ${cellCount}S Configuration\n\n" +
+                    "Initial Settings (30 seconds):\n" +
+                    "ü6”1 Cell Low Voltage Cutoff: ${TEMP_CELL_UNDERVOLTAGE}V\n" +
+                    "ü6”1 Cell Low Voltage Release: ${TEMP_CELL_UNDERVOLTAGE_RELEASE}V\n" +
+                    "ü6”1 Pack Low Voltage Cutoff: ${packUndervoltage / 10.0}V\n" +
+                    "ü6”1 Pack Low Voltage Release: ${packUndervoltageRelease / 10.0}V\n\n" +
+                    "After 30 seconds, settings will revert to:\n" +
+                    "ü6”1 Cell: ${DEFAULT_CELL_UNDERVOLTAGE}V / ${DEFAULT_CELL_UNDERVOLTAGE_RELEASE}V\n" +
+                    "ü6”1 Pack: ${defaultPackUndervoltage / 10.0}V / ${defaultPackUndervoltageRelease / 10.0}V\n\n" +
+                    "Both FETs will be turned ON after completion!"
             textSize = 14f
             setTextColor(Color.DKGRAY)
             setPadding(0, 16, 0, 16)
@@ -458,10 +420,9 @@ class MeterActivity : AppCompatActivity() {
 
         val alertDialog = AlertDialog.Builder(this)
             .setView(dialogView)
-            .setPositiveButton("Write to EEPROM") { dialog, _ ->
-                dialog.dismiss()
-                showEepromWriteProgressDialog()
+            .setPositiveButton("Write & Enable FETs") { dialog, _ ->
                 writeCellVoltageSettings()
+                dialog.dismiss()
             }
             .setNegativeButton("Cancel") { dialog, _ ->
                 dialog.dismiss()
@@ -471,77 +432,21 @@ class MeterActivity : AppCompatActivity() {
         alertDialog.show()
     }
 
-    private fun showEepromWriteProgressDialog() {
-        val dialogView = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(32, 32, 32, 32)
-        }
-
-        val title = TextView(this).apply {
-            text = "Writing EEPROM Settings"
-            textSize = 18f
-            setTypeface(Typeface.DEFAULT, Typeface.BOLD)
-            setTextColor(Color.BLACK)
-            gravity = Gravity.CENTER
-        }
-        dialogView.addView(title)
-
-        eepromWriteProgress = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
-            isIndeterminate = true
-            setPadding(0, 32, 0, 32)
-        }
-        dialogView.addView(eepromWriteProgress)
-
-        eepromWriteMessage = TextView(this).apply {
-            text = "Please wait... Writing cell voltage settings to EEPROM\n\nThis may take up to 30 seconds..."
-            textSize = 14f
-            setTextColor(Color.DKGRAY)
-            gravity = Gravity.CENTER
-            setPadding(0, 16, 0, 0)
-        }
-        dialogView.addView(eepromWriteMessage)
-
-        eepromWriteDialog = AlertDialog.Builder(this)
-            .setView(dialogView)
-            .setCancelable(false)
-            .create()
-
-        eepromWriteDialog?.show()
-    }
-
-    private fun updateEepromWriteProgress(message: String) {
-        runOnUiThread {
-            eepromWriteMessage?.text = message
-        }
-    }
-
-    private fun hideEepromWriteProgressDialog(success: Boolean) {
-        runOnUiThread {
-            eepromWriteDialog?.dismiss()
-            eepromWriteDialog = null
-            
-            if (success) {
-                toast("EEPROM write completed successfully!")
-            } else {
-                toast("EEPROM write failed! Settings may revert.")
-            }
-        }
-    }
-
     private fun writeCellVoltageSettings() {
         if (gatt == null || chWrite == null) {
             toast("Not connected to BMS")
-            hideEepromWriteProgressDialog(false)
             return
         }
 
-        addDebugLog("Starting EEPROM write process...")
-        addDebugLog("Stopping periodic polling to avoid data conflicts...")
-        
         // Set EEPROM write flag to stop polling
         isWritingEEPROM = true
         eepromWriteStep = 1
-        eepromWriteSuccess = false
+        
+        // Update button state
+        runOnUiThread {
+            btnWriteAndEnable.isEnabled = false
+            btnWriteAndEnable.text = "Writing..."
+        }
         
         // Clear UI values to indicate write mode
         runOnUiThread {
@@ -561,99 +466,213 @@ class MeterActivity : AppCompatActivity() {
     private fun executeEepromWriteSequence() {
         when (eepromWriteStep) {
             1 -> {
-                updateEepromWriteProgress("Step 1/4: Entering factory mode...")
-                addDebugLog("Step 1: Entering factory mode...")
-                
-                // Enter factory mode first - using the exact command you provided
+                // Enter factory mode
                 writeToCharacteristic(CMD_ENTER_FACTORY)
-                addDebugLog("Sent: Enter Factory Mode")
-                addDebugLog("Command: ${bytesToHex(CMD_ENTER_FACTORY)}")
                 
-                // Wait 3 seconds for response and BMS processing
                 handler.postDelayed({
                     eepromWriteStep = 2
                     executeEepromWriteSequence()
-                }, 3000)
+                }, 2000)
             }
             2 -> {
-                updateEepromWriteProgress("Step 2/4: Writing cell undervoltage protection (2.0V)...")
-                addDebugLog("Step 2: Writing cell undervoltage protection...")
-                
                 // Write cell undervoltage protection (2.0V = 2000mV)
-                val undervoltageData = byteArrayOf(0x07.toByte(), 0xD0.toByte()) // 2000 in big-endian
+                val undervoltageData = byteArrayOf(0x07.toByte(), 0xD0.toByte())
                 val undervoltageCmd = createWriteCommand(REG_CELL_UNDERVOLTAGE_PROTECTION, undervoltageData)
                 writeToCharacteristic(undervoltageCmd)
-                addDebugLog("Sent: Cell Undervoltage Protection = 2.0V")
-                addDebugLog("Command: ${bytesToHex(undervoltageCmd)}")
                 
-                // Wait 3 seconds for response
                 handler.postDelayed({
                     eepromWriteStep = 3
                     executeEepromWriteSequence()
-                }, 3000)
+                }, 2000)
             }
             3 -> {
-                updateEepromWriteProgress("Step 3/4: Writing cell undervoltage release (2.1V)...")
-                addDebugLog("Step 3: Writing cell undervoltage release...")
-                
                 // Write cell undervoltage release (2.1V = 2100mV)
-                val undervoltageReleaseData = byteArrayOf(0x08.toByte(), 0x34.toByte()) // 2100 in big-endian
+                val undervoltageReleaseData = byteArrayOf(0x08.toByte(), 0x34.toByte())
                 val undervoltageReleaseCmd = createWriteCommand(REG_CELL_UNDERVOLTAGE_RELEASE, undervoltageReleaseData)
                 writeToCharacteristic(undervoltageReleaseCmd)
-                addDebugLog("Sent: Cell Undervoltage Release = 2.1V")
-                addDebugLog("Command: ${bytesToHex(undervoltageReleaseCmd)}")
                 
-                // Wait 3 seconds for response
                 handler.postDelayed({
                     eepromWriteStep = 4
                     executeEepromWriteSequence()
-                }, 3000)
+                }, 2000)
             }
             4 -> {
-                updateEepromWriteProgress("Step 4/4: Exiting factory mode and committing changes...")
-                addDebugLog("Step 4: Exiting factory mode...")
+                // Calculate and write pack undervoltage protection
+                val packUndervoltage = (TEMP_CELL_UNDERVOLTAGE * cellCount * 10).toInt()
+                val packUndervoltageData = byteArrayOf(
+                    ((packUndervoltage shr 8) and 0xFF).toByte(),
+                    (packUndervoltage and 0xFF).toByte()
+                )
+                val packUndervoltageCmd = createWriteCommand(REG_PACK_UNDERVOLTAGE_PROTECTION, packUndervoltageData)
+                writeToCharacteristic(packUndervoltageCmd)
                 
-                writeToCharacteristic(CMD_EXIT_FACTORY)
-                addDebugLog("Sent: Exit Factory Mode")
-                addDebugLog("Command: ${bytesToHex(CMD_EXIT_FACTORY)}")
-                
-                // Wait 5 seconds for EEPROM commit
                 handler.postDelayed({
-                    addDebugLog("EEPROM write process completed!")
+                    eepromWriteStep = 5
+                    executeEepromWriteSequence()
+                }, 2000)
+            }
+            5 -> {
+                // Calculate and write pack undervoltage release
+                val packUndervoltageRelease = (TEMP_CELL_UNDERVOLTAGE_RELEASE * cellCount * 10).toInt()
+                val packUndervoltageReleaseData = byteArrayOf(
+                    ((packUndervoltageRelease shr 8) and 0xFF).toByte(),
+                    (packUndervoltageRelease and 0xFF).toByte()
+                )
+                val packUndervoltageReleaseCmd = createWriteCommand(REG_PACK_UNDERVOLTAGE_RELEASE, packUndervoltageReleaseData)
+                writeToCharacteristic(packUndervoltageReleaseCmd)
+                
+                handler.postDelayed({
+                    eepromWriteStep = 6
+                    executeEepromWriteSequence()
+                }, 2000)
+            }
+            6 -> {
+                // Exit factory mode
+                writeToCharacteristic(CMD_EXIT_FACTORY)
+                
+                handler.postDelayed({
+                    runOnUiThread {
+                        btnWriteAndEnable.text = "Reverting in 30s..."
+                    }
+                    toast("Initial settings written. Reverting in 30 seconds...")
                     
-                    // Mark as successful
-                    eepromWriteSuccess = true
-                    
-                    // Wait additional 10 seconds to ensure settings are committed
-                    updateEepromWriteProgress("EEPROM write completed! Waiting for settings to stabilize...")
-                    
+                    // Schedule the revert operation after 30 seconds
                     handler.postDelayed({
-                        addDebugLog("Resuming normal polling...")
-                        
-                        // Clear EEPROM write flag to resume polling
-                        isWritingEEPROM = false
-                        eepromWriteStep = 0
-                        
-                        hideEepromWriteProgressDialog(true)
-                        
-                        // Send basic info command to refresh data
-                        handler.postDelayed({
-                            if (!isWritingEEPROM) {
-                                chWrite?.let { w ->
-                                    gatt?.let { g ->
-                                        w.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
-                                        w.value = CMD_BASIC_INFO
-                                        g.writeCharacteristic(w)
-                                    }
-                                }
-                            }
-                        }, 1000)
-                        
-                    }, 10000) // Wait 10 seconds for stabilization
+                        revertToDefaultSettings()
+                    }, 30000)
                     
-                }, 5000) // Wait 5 seconds after exit factory mode
+                }, 2000)
             }
         }
+    }
+
+    private fun revertToDefaultSettings() {
+        isWritingEEPROM = true
+        eepromWriteStep = 101
+        
+        runOnUiThread {
+            btnWriteAndEnable.text = "Reverting..."
+        }
+        
+        handler.post {
+            executeRevertSequence()
+        }
+    }
+
+    private fun executeRevertSequence() {
+        when (eepromWriteStep) {
+            101 -> {
+                writeToCharacteristic(CMD_ENTER_FACTORY)
+                
+                handler.postDelayed({
+                    eepromWriteStep = 102
+                    executeRevertSequence()
+                }, 2000)
+            }
+            102 -> {
+                // Write default cell undervoltage protection (2.7V = 2700mV)
+                val undervoltageData = byteArrayOf(0x0A.toByte(), 0x8C.toByte())
+                val undervoltageCmd = createWriteCommand(REG_CELL_UNDERVOLTAGE_PROTECTION, undervoltageData)
+                writeToCharacteristic(undervoltageCmd)
+                
+                handler.postDelayed({
+                    eepromWriteStep = 103
+                    executeRevertSequence()
+                }, 2000)
+            }
+            103 -> {
+                // Write default cell undervoltage release (2.8V = 2800mV)
+                val undervoltageReleaseData = byteArrayOf(0x0A.toByte(), 0xF0.toByte())
+                val undervoltageReleaseCmd = createWriteCommand(REG_CELL_UNDERVOLTAGE_RELEASE, undervoltageReleaseData)
+                writeToCharacteristic(undervoltageReleaseCmd)
+                
+                handler.postDelayed({
+                    eepromWriteStep = 104
+                    executeRevertSequence()
+                }, 2000)
+            }
+            104 -> {
+                // Calculate and write default pack undervoltage protection
+                val packUndervoltage = (DEFAULT_CELL_UNDERVOLTAGE * cellCount * 10).toInt()
+                val packUndervoltageData = byteArrayOf(
+                    ((packUndervoltage shr 8) and 0xFF).toByte(),
+                    (packUndervoltage and 0xFF).toByte()
+                )
+                val packUndervoltageCmd = createWriteCommand(REG_PACK_UNDERVOLTAGE_PROTECTION, packUndervoltageData)
+                writeToCharacteristic(packUndervoltageCmd)
+                
+                handler.postDelayed({
+                    eepromWriteStep = 105
+                    executeRevertSequence()
+                }, 2000)
+            }
+            105 -> {
+                // Calculate and write default pack undervoltage release
+                val packUndervoltageRelease = (DEFAULT_CELL_UNDERVOLTAGE_RELEASE * cellCount * 10).toInt()
+                val packUndervoltageReleaseData = byteArrayOf(
+                    ((packUndervoltageRelease shr 8) and 0xFF).toByte(),
+                    (packUndervoltageRelease and 0xFF).toByte()
+                )
+                val packUndervoltageReleaseCmd = createWriteCommand(REG_PACK_UNDERVOLTAGE_RELEASE, packUndervoltageReleaseData)
+                writeToCharacteristic(packUndervoltageReleaseCmd)
+                
+                handler.postDelayed({
+                    eepromWriteStep = 106
+                    executeRevertSequence()
+                }, 2000)
+            }
+            106 -> {
+                writeToCharacteristic(CMD_EXIT_FACTORY)
+                
+                handler.postDelayed({
+                    // Clear EEPROM write flag to resume polling
+                    isWritingEEPROM = false
+                    eepromWriteStep = 0
+                    
+                    // Force both FETs ON after completion
+                    controlFets()
+                    
+                    // Reset button state
+                    runOnUiThread {
+                        btnWriteAndEnable.isEnabled = true
+                        btnWriteAndEnable.text = "Force ON"
+                    }
+                    
+                    toast("Settings reverted and FETs enabled")
+                    
+                    // Send basic info command to refresh data
+                    handler.postDelayed({
+                        if (!isWritingEEPROM) {
+                            chWrite?.let { w ->
+                                gatt?.let { g ->
+                                    w.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
+                                    w.value = CMD_BASIC_INFO
+                                    g.writeCharacteristic(w)
+                                }
+                            }
+                        }
+                    }, 1000)
+                    
+                }, 2000)
+            }
+        }
+    }
+
+    private fun controlFets() {
+        if (gatt == null || chWrite == null) {
+            toast("Not connected to BMS")
+            return
+        }
+
+        writeToCharacteristic(CMD_FET_BOTH_ON)
+        
+        fetStatus = "Both ON"
+        
+        runOnUiThread {
+            tvFetStatus.text = fetStatus
+        }
+        
+        toast("FETs: Both ON")
     }
 
     private fun writeToCharacteristic(data: ByteArray) {
@@ -662,17 +681,6 @@ class MeterActivity : AppCompatActivity() {
                 w.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
                 w.value = data
                 g.writeCharacteristic(w)
-            }
-        }
-    }
-
-    private fun addDebugLog(message: String) {
-        debugLog.append("${Date().toString().substring(11, 19)}: $message\n")
-        runOnUiThread {
-            debugText.text = debugLog.toString()
-            // Auto-scroll to bottom
-            debugWindow.post {
-                debugWindow.fullScroll(View.FOCUS_DOWN)
             }
         }
     }
@@ -841,6 +849,7 @@ class MeterActivity : AppCompatActivity() {
         tvCurr.text = "-"
         tvTemp.text = "-"
         tvName.text = ""
+        tvFetStatus.text = "Unknown"
         thermometerView.setTemperature(0.0)
 
         scanning = true
@@ -885,6 +894,7 @@ class MeterActivity : AppCompatActivity() {
         tvVolt.text = "-"
         tvCurr.text = "-"
         tvTemp.text = "-"
+        tvFetStatus.text = "Unknown"
         thermometerView.setTemperature(0.0)
         
         gatt = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M)
@@ -898,6 +908,8 @@ class MeterActivity : AppCompatActivity() {
         chNotify = null
         chWrite = null
         rxBuffer.clear()
+        cellCount = 0
+        fetStatus = "Unknown"
         
         gatt?.let { g ->
             try {
@@ -913,16 +925,16 @@ class MeterActivity : AppCompatActivity() {
         override fun onConnectionStateChange(g: BluetoothGatt, status: Int, newState: Int) {
             runOnUiThread { toast("State: ${stateName(newState)} (status=$status)") }
             if (newState == BluetoothProfile.STATE_CONNECTED) {
-                addDebugLog("Connected to BMS")
                 g.discoverServices()
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
                 handler.removeCallbacks(pollTask)
                 chNotify = null
                 chWrite = null
                 rxBuffer.clear()
+                cellCount = 0
+                fetStatus = "Unknown"
                 g.close()
                 gatt = null
-                addDebugLog("Disconnected from BMS")
             }
         }
 
@@ -936,7 +948,6 @@ class MeterActivity : AppCompatActivity() {
                     disconnectFromCurrentDevice()
                 } else {
                     toast("Amitis service ready")
-                    addDebugLog("Amitis service discovered")
                 }
             }
             
@@ -957,35 +968,15 @@ class MeterActivity : AppCompatActivity() {
         override fun onCharacteristicChanged(g: BluetoothGatt, ch: BluetoothGattCharacteristic) {
             if (ch.uuid == AMITIS_READ_CH) {
                 val data = ch.value ?: return
-                addDebugLog("Received: ${bytesToHex(data)}")
-                
-                // Parse response for EEPROM write operations
-                if (isWritingEEPROM) {
-                    val response = parseResponse(data)
-                    if (response != null) {
-                        val (success, command, payload) = response
-                        if (success) {
-                            addDebugLog("✅ Write successful for command: 0x${command.toString(16).uppercase()}")
-                        } else {
-                            addDebugLog("❌ Write failed for command: 0x${command.toString(16).uppercase()}, status: 0x${if (payload.isNotEmpty()) payload[0].toString(16).uppercase() else "unknown"}")
-                        }
-                    }
-                }
-                
                 onAmitisBytes(data)
             }
         }
 
         override fun onCharacteristicWrite(g: BluetoothGatt, characteristic: BluetoothGattCharacteristic, status: Int) {
             if (characteristic.uuid == AMITIS_WRITE_CH) {
-                val data = characteristic.value ?: return
-                addDebugLog("Write confirmed: ${bytesToHex(data)} (BLE status=$status)")
+                // Write confirmation handled
             }
         }
-    }
-
-    private fun bytesToHex(bytes: ByteArray): String {
-        return bytes.joinToString(" ") { "%02X".format(it) }
     }
 
     private fun onAmitisBytes(chunk: ByteArray) {
@@ -1021,7 +1012,9 @@ class MeterActivity : AppCompatActivity() {
     }
 
     private fun handleBasicInfo(p: ByteArray) {
-        if (p.size < 24) return
+        if (p.size < 38) return // Ensure we have enough data for register 0x25
+        
+        // Extract basic info
         val vRaw = ((p[0].toInt() and 0xFF) shl 8) or (p[1].toInt() and 0xFF)
         val iRawU = ((p[2].toInt() and 0xFF) shl 8) or (p[3].toInt() and 0xFF)
         var iRaw = iRawU
@@ -1030,6 +1023,15 @@ class MeterActivity : AppCompatActivity() {
         val current = iRaw / 100.0
         val soc = p[19].toInt() and 0xFF
 
+        // Extract cell count from register 0x25 (position 37 in payload)
+        val newCellCount = p[26].toInt() and 0xFF
+        
+        if (newCellCount > 0 && newCellCount <= 24 && newCellCount != cellCount) {
+            cellCount = newCellCount
+            toast("Detected ${cellCount}S configuration")
+        }
+
+        // Extract temperature
         val dataStart = 4
         var tempValue = 0.0
         var tempText = "-"
