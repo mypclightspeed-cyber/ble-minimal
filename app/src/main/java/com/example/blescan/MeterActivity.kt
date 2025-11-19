@@ -228,7 +228,7 @@ class MeterActivity : AppCompatActivity() {
             }
             
             val titleTv = TextView(this).apply {
-                text = "Temperature (¨¹00‡37¨¹00‡41C)"
+                text = "Temperature (Ã¼0Ã…7Ã¼0Ã†1C)"
                 textSize = 16f
                 setTypeface(Typeface.DEFAULT, Typeface.BOLD)
                 setTextColor(Color.WHITE)
@@ -404,13 +404,13 @@ class MeterActivity : AppCompatActivity() {
         val infoText = TextView(this).apply {
             text = "Detected: ${cellCount}S Configuration\n\n" +
                     "Initial Settings (30 seconds):\n" +
-                    "¨¹6¡±1 Cell Low Voltage Cutoff: ${TEMP_CELL_UNDERVOLTAGE}V\n" +
-                    "¨¹6¡±1 Cell Low Voltage Release: ${TEMP_CELL_UNDERVOLTAGE_RELEASE}V\n" +
-                    "¨¹6¡±1 Pack Low Voltage Cutoff: ${packUndervoltage / 10.0}V\n" +
-                    "¨¹6¡±1 Pack Low Voltage Release: ${packUndervoltageRelease / 10.0}V\n\n" +
+                    "Ã¼6â€1 Cell Low Voltage Cutoff: ${TEMP_CELL_UNDERVOLTAGE}V\n" +
+                    "Ã¼6â€1 Cell Low Voltage Release: ${TEMP_CELL_UNDERVOLTAGE_RELEASE}V\n" +
+                    "Ã¼6â€1 Pack Low Voltage Cutoff: ${packUndervoltage / 100.0}V\n" +
+                    "Ã¼6â€1 Pack Low Voltage Release: ${packUndervoltageRelease / 100.0}V\n\n" +
                     "After 30 seconds, settings will revert to:\n" +
-                    "¨¹6¡±1 Cell: ${DEFAULT_CELL_UNDERVOLTAGE}V / ${DEFAULT_CELL_UNDERVOLTAGE_RELEASE}V\n" +
-                    "¨¹6¡±1 Pack: ${defaultPackUndervoltage / 10.0}V / ${defaultPackUndervoltageRelease / 10.0}V\n\n" +
+                    "Ã¼6â€1 Cell: ${DEFAULT_CELL_UNDERVOLTAGE}V / ${DEFAULT_CELL_UNDERVOLTAGE_RELEASE}V\n" +
+                    "Ã¼6â€1 Pack: ${defaultPackUndervoltage / 100.0}V / ${defaultPackUndervoltageRelease / 100.0}V\n\n" +
                     "Both FETs will be turned ON after completion!"
             textSize = 14f
             setTextColor(Color.DKGRAY)
@@ -498,7 +498,7 @@ class MeterActivity : AppCompatActivity() {
             }
             4 -> {
                 // Calculate and write pack undervoltage protection
-                val packUndervoltage = (TEMP_CELL_UNDERVOLTAGE * cellCount * 10).toInt()
+                val packUndervoltage = (TEMP_CELL_UNDERVOLTAGE * cellCount * 100).toInt()
                 val packUndervoltageData = byteArrayOf(
                     ((packUndervoltage shr 8) and 0xFF).toByte(),
                     (packUndervoltage and 0xFF).toByte()
@@ -513,7 +513,7 @@ class MeterActivity : AppCompatActivity() {
             }
             5 -> {
                 // Calculate and write pack undervoltage release
-                val packUndervoltageRelease = (TEMP_CELL_UNDERVOLTAGE_RELEASE * cellCount * 10).toInt()
+                val packUndervoltageRelease = (TEMP_CELL_UNDERVOLTAGE_RELEASE * cellCount * 100).toInt()
                 val packUndervoltageReleaseData = byteArrayOf(
                     ((packUndervoltageRelease shr 8) and 0xFF).toByte(),
                     (packUndervoltageRelease and 0xFF).toByte()
