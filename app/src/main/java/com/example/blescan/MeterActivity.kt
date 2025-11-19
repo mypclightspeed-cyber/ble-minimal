@@ -138,7 +138,7 @@ class MeterActivity : AppCompatActivity() {
     private lateinit var tvCurr: TextView
     private lateinit var tvTemp: TextView
     private lateinit var tvName: TextView
-    private lateinit var tvCellCount: TextView
+//    private lateinit var tvCellCount: TextView
     private lateinit var thermometerView: ThermometerView
 
     // Debug window components
@@ -374,39 +374,11 @@ class MeterActivity : AppCompatActivity() {
             return card to buttonLayout
         }
 
-        // Create Cell Count card
-        fun makeCellCountCard(): Pair<LinearLayout, TextView> {
-            val card = LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-                setPadding(24, 18, 24, 18)
-                setBackgroundColor(Color.parseColor("#059669"))
-                val lp = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
-                )
-                lp.setMargins(16, 10, 16, 10)
-                layoutParams = lp
-                elevation = 6f
-            }
-            val titleTv = TextView(this).apply {
-                text = "Cell Count"
-                textSize = 16f
-                setTypeface(typeface, Typeface.BOLD)
-                setTextColor(Color.WHITE)
-            }
-            val valueTv = TextView(this).apply {
-                text = "-"
-                textSize = 26f
-                setTextColor(Color.WHITE)
-            }
-            card.addView(titleTv); card.addView(valueTv)
-            return card to valueTv
-        }
 
         val (cardName, nameValue) = makeCard("Device", "#3B82F6")
         val (cardVolt, voltValue) = makeCard("Voltage (V)", "#10B981")
         val (cardCurr, currValue) = makeCard("Current (A)", "#DC143C")
         val (cardTemp, tempPair) = makeThermometerCard()
-        val (cardCellCount, cellCountValue) = makeCellCountCard()
         val (fetControlCard, fetButtonLayout) = makeFetControlCard()
         
         tvVolt = voltValue
@@ -414,7 +386,7 @@ class MeterActivity : AppCompatActivity() {
         tvTemp = tempPair.first
         thermometerView = tempPair.second
         tvName = nameValue
-        tvCellCount = cellCountValue
+//        tvCellCount = cellCountValue
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -431,7 +403,7 @@ class MeterActivity : AppCompatActivity() {
             addView(cardVolt)
             addView(cardCurr)
             addView(cardTemp)
-            addView(cardCellCount)
+            
             addView(fetControlCard)
         }
         setContentView(root)
@@ -984,7 +956,7 @@ class MeterActivity : AppCompatActivity() {
         tvCurr.text = "-"
         tvTemp.text = "-"
         tvName.text = ""
-        tvCellCount.text = "-"
+        //tvCellCount.text = "-"
         thermometerView.setTemperature(0.0)
 
         scanning = true
@@ -1029,7 +1001,7 @@ class MeterActivity : AppCompatActivity() {
         tvVolt.text = "-"
         tvCurr.text = "-"
         tvTemp.text = "-"
-        tvCellCount.text = "-"
+        //tvCellCount.text = "-"
         thermometerView.setTemperature(0.0)
         
         gatt = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M)
@@ -1214,8 +1186,8 @@ class MeterActivity : AppCompatActivity() {
             cellCount = newCellCount
             addDebugLog("Cell count detected: $cellCount cells")
             
-            runOnUiThread {
-                tvCellCount.text = "$cellCount"
+            //runOnUiThread {
+//                tvCellCount.text = "$cellCount"
                 toast("Detected ${cellCount}S configuration")
             }
         }
