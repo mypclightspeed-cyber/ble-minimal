@@ -1024,7 +1024,7 @@ class MeterActivity : AppCompatActivity() {
         val soc = p[19].toInt() and 0xFF
 
         // Extract cell count from register 0x25 (position 37 in payload)
-        val newCellCount = p[26].toInt() and 0xFF
+        val newCellCount = p[24].toInt() and 0xFF
         
         if (newCellCount > 0 && newCellCount <= 24 && newCellCount != cellCount) {
             cellCount = newCellCount
