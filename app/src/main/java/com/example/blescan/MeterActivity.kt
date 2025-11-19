@@ -406,11 +406,11 @@ class MeterActivity : AppCompatActivity() {
                     "Initial Settings (30 seconds):\n" +
                     "¨¹6¡±1 Cell Low Voltage Cutoff: ${TEMP_CELL_UNDERVOLTAGE}V\n" +
                     "¨¹6¡±1 Cell Low Voltage Release: ${TEMP_CELL_UNDERVOLTAGE_RELEASE}V\n" +
-                    "¨¹6¡±1 Pack Low Voltage Cutoff: ${packUndervoltage / 10.0}V\n" +
-                    "¨¹6¡±1 Pack Low Voltage Release: ${packUndervoltageRelease / 10.0}V\n\n" +
+                    "¨¹6¡±1 Pack Low Voltage Cutoff: ${packUndervoltage / 100.0}V\n" +
+                    "¨¹6¡±1 Pack Low Voltage Release: ${packUndervoltageRelease / 100.0}V\n\n" +
                     "After 30 seconds, settings will revert to:\n" +
                     "¨¹6¡±1 Cell: ${DEFAULT_CELL_UNDERVOLTAGE}V / ${DEFAULT_CELL_UNDERVOLTAGE_RELEASE}V\n" +
-                    "¨¹6¡±1 Pack: ${defaultPackUndervoltage / 10.0}V / ${defaultPackUndervoltageRelease / 10.0}V\n\n" +
+                    "¨¹6¡±1 Pack: ${defaultPackUndervoltage / 100.0}V / ${defaultPackUndervoltageRelease / 100.0}V\n\n" +
                     "Both FETs will be turned ON after completion!"
             textSize = 14f
             setTextColor(Color.DKGRAY)
@@ -1024,7 +1024,7 @@ class MeterActivity : AppCompatActivity() {
         val soc = p[19].toInt() and 0xFF
 
         // Extract cell count from register 0x25 (position 37 in payload)
-        val newCellCount = p[25].toInt() and 0xFF
+        val new, = p[26].toInt() and 0xFF
         
         if (newCellCount > 0 && newCellCount <= 24 && newCellCount != cellCount) {
             cellCount = newCellCount
