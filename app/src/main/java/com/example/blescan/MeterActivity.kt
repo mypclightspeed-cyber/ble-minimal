@@ -489,7 +489,7 @@ class MeterActivity : AppCompatActivity() {
         val alertDialog = AlertDialog.Builder(this)
             .setView(dialogView)
             .setPositiveButton("Accept & Start") { dialog, _ ->
-                startCountdown()
+                //startCountdown()
                 writeCellVoltageSettings()
                 dialog.dismiss()
             }
