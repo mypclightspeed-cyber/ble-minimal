@@ -190,7 +190,7 @@ class MeterActivity : AppCompatActivity() {
         // Gauge style 3 (modern half-circle)
         gauge = ModernHalfGauge(this).apply {
             layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, 380
+                LinearLayout.LayoutParams.MATCH_PARENT, 450
             ).apply { setMargins(16, 10, 16, 6) }
             setLabel("SOC")
             setPercent(0)
@@ -353,7 +353,7 @@ class MeterActivity : AppCompatActivity() {
                 visibility = View.GONE
             }
             val titleTv = TextView(this).apply {
-                text = "Emergency Mode Countdown"
+                text = "Emergency Mode ..."
                 textSize = 16f
                 setTypeface(typeface, Typeface.BOLD)
                 setTextColor(Color.WHITE)
@@ -443,7 +443,7 @@ class MeterActivity : AppCompatActivity() {
         }
 
         val title = TextView(this).apply {
-            text = "Emergency Start Battery\nAfter Accept Wait & Don't Leave for 30S!"
+            text = "Emergency Start Battery\nAfter Accept, Wait & Don't Leave for 30S!"
             textSize = 16f
             setTypeface(Typeface.DEFAULT, Typeface.BOLD)
             setTextColor(Color.BLACK)
@@ -517,7 +517,7 @@ class MeterActivity : AppCompatActivity() {
             tvCountdown.text = if (countdownSeconds > 0) {
                 "$countdownSeconds seconds"
             } else {
-                "Completed"
+                "Finished"
             }
             
             // Change color based on time remaining
@@ -634,13 +634,14 @@ class MeterActivity : AppCompatActivity() {
             6 -> {
                 // Exit factory mode
                 writeToCharacteristic(CMD_EXIT_FACTORY)
+                startCountdown()
                 
                 handler.postDelayed({
                     // TURN BOTH FETs ON
                     controlFets()
                     
                     runOnUiThread {
-                        btnWriteAndEnable.text = "Default...30S"
+                        btnWriteAndEnable.text = "Waiting ..."
                     }
                     toast("Initial settings written. Reverting in 30 seconds...")
                     
