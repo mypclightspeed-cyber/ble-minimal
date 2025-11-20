@@ -537,7 +537,7 @@ class MeterActivity : AppCompatActivity() {
                     controlFets()
                     
                     runOnUiThread {
-                        btnWriteAndEnable.text = "B2Normal(30s)..."
+                        btnWriteAndEnable.text = "Normal>30S"
                     }
                     toast("Initial settings written. Reverting in 30 seconds...")
                     
@@ -559,7 +559,7 @@ class MeterActivity : AppCompatActivity() {
         eepromWriteStep = 101
         
         runOnUiThread {
-            btnWriteAndEnable.text = "Reverting..."
+            btnWriteAndEnable.text = "Reverting"
         }
         
         handler.post {
@@ -643,7 +643,7 @@ class MeterActivity : AppCompatActivity() {
                     // Reset button state
                     runOnUiThread {
                         btnWriteAndEnable.isEnabled = true
-                        btnWriteAndEnable.text = "Force ON"
+                        btnWriteAndEnable.text = "Switch ON"
                     }
                     
                     toast("Settings reverted and FETs enabled")
