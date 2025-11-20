@@ -50,7 +50,7 @@ class MeterActivity : AppCompatActivity() {
 
     // Factory mode commands
     private val CMD_ENTER_FACTORY = hex("DD 5A 00 02 56 78 FF 30 77")
-    private val CMD_EXIT_FACTORY = hex("DD 5A 01 02 28 28 FF 53 77")
+    private val CMD_EXIT_FACTORY = hex("DD 5A 01 02 28 28 FF AD 77")
     
     // FET Control commands
     private val CMD_FET_BOTH_ON = hex("DD 5A E1 02 00 00 FF 1D 77")
