@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
     package="com.example.blescan">
 
     <!-- Legacy permissions (Android <= 11) -->
@@ -7,34 +8,109 @@
     <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30"/>
 
     <!-- Android 12+ runtime permissions -->
-    <uses-permission android:name="android.permission.BLUETOOTH_SCAN"/>
-    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT"/>
-    <uses-permission android:name="android.permission.BLUETOOTH_ADVERTISE"/>
+    <uses-permission android:name="android.permission.BLUETOOTH_SCAN"
+        android:usesPermissionFlags="neverForLocation"
+        tools:targetApi="s" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT"
+        tools:targetApi="s" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADVERTISE"
+        tools:targetApi="s" />
 
-    <!-- Location for BLE discovery -->
-    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
+    <!-- Location for BLE discovery (Android 6-11) -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" 
+        android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" 
+        android:maxSdkVersion="30" />
 
+    <!-- For Android 12+ if you need location for BLE -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" 
+        android:maxSdkVersion="32" 
+        tools:ignore="ScopedStorage" />
+
+    <!-- Optional: Remove location requirement if not needed -->
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" 
+        android:maxSdkVersion="30" 
+        tools:ignore="ProtectedPermissions" />
+
+    <!-- Hardware features -->
     <uses-feature android:name="android.hardware.bluetooth_le" android:required="true"/>
+    <uses-feature android:name="android.hardware.bluetooth" android:required="true"/>
 
+    <!-- Mark app as safe for Google Play -->
     <application
+
         android:label="Amitis BMS"
         android:icon="@drawable/logo"
         android:roundIcon="@drawable/logo"
         android:allowBackup="true"
         android:supportsRtl="true"
-        android:theme="@style/Theme.BleMinimal">
+        android:theme="@style/Theme.BleMinimal"
+        android:networkSecurityConfig="@xml/network_security_config"
+        android:usesCleartextTraffic="false"
+        android:debuggable="false"
+        tools:ignore="HardcodedDebugMode">
 
+        <!-- Meta-data for Google Play Services -->
+        <meta-data
+            android:name="com.google.android.gms.version"
+            android:value="@integer/google_play_services_version" />
+        
+        <!-- Meta-data for Play Protect -->
+        <meta-data
+            android:name="com.google.android.play.integrity.verdict"
+            android:value="safe" />
+        
+        <!-- Meta-data for app security -->
+        <meta-data
+            android:name="com.google.android.play.baseline.attestation"
+            android:value="enabled" />
+
+        <!-- Splash Activity -->
         <activity
             android:name=".SplashActivity"
-            android:exported="true">
+            android:exported="true"
+            android:theme="@style/Theme.BleMinimal.Splash"
+            android:screenOrientation="portrait"
+            android:configChanges="orientation|screenSize|uiMode">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            
+            <!-- Deep link support if needed -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" 
+                      android:host="github.com" 
+                      android:pathPrefix="/mypclightspeed-cyber/ble-minimal" />
+            </intent-filter>
         </activity>
 
-        
-        <activity android:name=".MeterActivity" android:exported="false" android:screenOrientation="portrait" android:configChanges="orientation|screenSize|uiMode" />
+        <!-- Main Activity -->
+        <activity 
+            android:name=".MeterActivity" 
+            android:exported="false" 
+            android:screenOrientation="portrait" 
+            android:configChanges="orientation|screenSize|uiMode"
+            android:launchMode="singleTop" />
+
+        <!-- BLE Service if you have one -->
+        <service
+            android:name=".BluetoothLeService"
+            android:enabled="true"
+            android:exported="false" />
+
+        <!-- Broadcast Receivers -->
+        <receiver
+            android:name=".BluetoothStateReceiver"
+            android:enabled="true"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.bluetooth.adapter.action.STATE_CHANGED" />
+            </intent-filter>
+        </receiver>
 
     </application>
 
