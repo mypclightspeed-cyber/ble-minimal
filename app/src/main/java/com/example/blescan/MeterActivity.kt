@@ -48,9 +48,9 @@ class MeterActivity : AppCompatActivity() {
     private val REG_PACK_UNDERVOLTAGE_RELEASE = 0x23     // Corrected from 0x22
     private val REG_FET_CONTROL = 0x24                   // FET control register
 
-    // Factory mode commandsDD 5A 01 02 28 28 D0 77
+    // Factory mode commands
     private val CMD_ENTER_FACTORY = hex("DD 5A 00 02 56 78 FF 30 77")
-    private val CMD_EXIT_FACTORY = hex("DD 5A 00 02 55 AA 8B 77")
+    private val CMD_EXIT_FACTORY = hex("DD 5A 01 02 28 28 FF 53 77")
     
     // FET Control commands
     private val CMD_FET_BOTH_ON = hex("DD 5A E1 02 00 00 FF 1D 77")
