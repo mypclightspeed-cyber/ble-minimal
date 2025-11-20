@@ -67,6 +67,23 @@ class MeterActivity : AppCompatActivity() {
     // FET Status
     private var fetStatus = "Unknown"
 
+    // Countdown variables
+    private var countdownSeconds = 30
+    private var countdownRunning = false
+    private val countdownHandler = Handler(Looper.getMainLooper())
+    private val countdownRunnable = object : Runnable {
+        override fun run() {
+            if (countdownRunning && countdownSeconds > 0) {
+                countdownSeconds--
+                updateCountdownDisplay()
+                countdownHandler.postDelayed(this, 1000)
+            } else if (countdownSeconds == 0) {
+                countdownRunning = false
+                updateCountdownDisplay()
+            }
+        }
+    }
+
     private fun calculateChecksumForWrite(register: Int, data: ByteArray): Int {
         var sum = register + data.size
         for (byte in data) {
@@ -101,6 +118,7 @@ class MeterActivity : AppCompatActivity() {
     private lateinit var tvTemp: TextView
     private lateinit var tvName: TextView
     private lateinit var tvFetStatus: TextView
+    private lateinit var tvCountdown: TextView
     private lateinit var thermometerView: ThermometerView
     private lateinit var btnWriteAndEnable: Button
 
@@ -319,11 +337,45 @@ class MeterActivity : AppCompatActivity() {
             return card to (statusValue to controlButton)
         }
 
+        // Create Countdown card
+        fun makeCountdownCard(): Pair<LinearLayout, TextView> {
+            val card = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(24, 18, 24, 18)
+                setBackgroundColor(Color.parseColor("#059669"))
+                val lp = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+                )
+                lp.setMargins(16, 10, 16, 10)
+                layoutParams = lp
+                elevation = 6f
+                visibility = View.GONE
+            }
+            val titleTv = TextView(this).apply {
+                text = "Emergency Mode Countdown"
+                textSize = 16f
+                setTypeface(typeface, Typeface.BOLD)
+                setTextColor(Color.WHITE)
+                gravity = Gravity.CENTER
+            }
+            val valueTv = TextView(this).apply {
+                text = "30 seconds"
+                textSize = 24f
+                setTypeface(typeface, Typeface.BOLD)
+                setTextColor(Color.WHITE)
+                gravity = Gravity.CENTER
+            }
+            card.addView(titleTv)
+            card.addView(valueTv)
+            return card to valueTv
+        }
+
         val (cardName, nameValue) = makeCard("Device", "#3B82F6")
         val (cardVolt, voltValue) = makeCard("Voltage (V)", "#10B981")
         val (cardCurr, currValue) = makeCard("Current (A)", "#DC143C")
         val (cardTemp, tempPair) = makeThermometerCard()
         val (fetControlCard, fetPair) = makeFetControlCard()
+        val (countdownCard, countdownValue) = makeCountdownCard()
         
         tvVolt = voltValue
         tvCurr = currValue
@@ -332,6 +384,7 @@ class MeterActivity : AppCompatActivity() {
         tvName = nameValue
         tvFetStatus = fetPair.first
         btnWriteAndEnable = fetPair.second
+        tvCountdown = countdownValue
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -347,6 +400,7 @@ class MeterActivity : AppCompatActivity() {
             addView(cardCurr)
             addView(cardTemp)
             addView(fetControlCard)
+            addView(countdownCard)
         }
         setContentView(root)
 
@@ -387,13 +441,24 @@ class MeterActivity : AppCompatActivity() {
         }
 
         val title = TextView(this).apply {
-            text = "Emergency Start Battery"
-            textSize = 18f
+            text = "Emergency Start Battery \n After Accept  Wait and Don't Leave for 30S! "
+            textSize = 14f
             setTypeface(Typeface.DEFAULT, Typeface.BOLD)
             setTextColor(Color.BLACK)
             gravity = Gravity.CENTER
         }
         dialogView.addView(title)
+
+        // Add countdown display
+        val countdownText = TextView(this).apply {
+            text = "30 seconds"
+            textSize = 24f
+            setTypeface(Typeface.DEFAULT, Typeface.BOLD)
+            setTextColor(Color.RED)
+            gravity = Gravity.CENTER
+            setPadding(0, 16, 0, 16)
+        }
+        dialogView.addView(countdownText)
 
         // Calculate pack voltages based on cell count
         val packUndervoltage = (TEMP_CELL_UNDERVOLTAGE * cellCount * 100).toInt()
@@ -416,12 +481,12 @@ class MeterActivity : AppCompatActivity() {
             setTextColor(Color.DKGRAY)
             setPadding(0, 16, 0, 16)
         }
-       
         dialogView.addView(infoText)
 */
         val alertDialog = AlertDialog.Builder(this)
             .setView(dialogView)
             .setPositiveButton("Accept & Start") { dialog, _ ->
+                startCountdown()
                 writeCellVoltageSettings()
                 dialog.dismiss()
             }
@@ -431,6 +496,41 @@ class MeterActivity : AppCompatActivity() {
             .create()
 
         alertDialog.show()
+    }
+
+    private fun startCountdown() {
+        countdownSeconds = 30
+        countdownRunning = true
+        updateCountdownDisplay()
+        
+        // Show countdown card
+        tvCountdown.parent.visibility = View.VISIBLE
+        
+        countdownHandler.postDelayed(countdownRunnable, 1000)
+    }
+
+    private fun updateCountdownDisplay() {
+        runOnUiThread {
+            tvCountdown.text = if (countdownSeconds > 0) {
+                "$countdownSeconds seconds"
+            } else {
+                "Completed"
+            }
+            
+            // Change color based on time remaining
+            when {
+                countdownSeconds > 20 -> tvCountdown.setTextColor(Color.WHITE)
+                countdownSeconds > 10 -> tvCountdown.setTextColor(Color.YELLOW)
+                else -> tvCountdown.setTextColor(Color.RED)
+            }
+            
+            // Hide card when countdown completes
+            if (countdownSeconds == 0) {
+                handler.postDelayed({
+                    tvCountdown.parent.visibility = View.GONE
+                }, 2000)
+            }
+        }
     }
 
     private fun writeCellVoltageSettings() {
@@ -537,7 +637,7 @@ class MeterActivity : AppCompatActivity() {
                     controlFets()
                     
                     runOnUiThread {
-                        btnWriteAndEnable.text = "Default...30S"
+                        btnWriteAndEnable.text = "Waiting...30S"
                     }
                     toast("Initial settings written. Reverting in 30 seconds...")
                     
@@ -871,6 +971,7 @@ class MeterActivity : AppCompatActivity() {
         tvName.text = ""
         tvFetStatus.text = "Charge: - | Discharge: -"
         thermometerView.setTemperature(0.0)
+        tvCountdown.parent.visibility = View.GONE
 
         scanning = true
         toast("Scanning for ${SCAN_MS/1000}s...")
@@ -916,6 +1017,7 @@ class MeterActivity : AppCompatActivity() {
         tvTemp.text = "-"
         tvFetStatus.text = "Charge: - | Discharge: -"
         thermometerView.setTemperature(0.0)
+        tvCountdown.parent.visibility = View.GONE
         
         gatt = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M)
             device.connectGatt(this, false, gattCb, BluetoothDevice.TRANSPORT_LE)
@@ -930,6 +1032,11 @@ class MeterActivity : AppCompatActivity() {
         rxBuffer.clear()
         cellCount = 0
         fetStatus = "Charge: - | Discharge: -"
+        
+        // Stop countdown
+        countdownRunning = false
+        countdownHandler.removeCallbacks(countdownRunnable)
+        tvCountdown.parent.visibility = View.GONE
         
         gatt?.let { g ->
             try {
@@ -953,6 +1060,12 @@ class MeterActivity : AppCompatActivity() {
                 rxBuffer.clear()
                 cellCount = 0
                 fetStatus = "Charge: - | Discharge: -"
+                
+                // Stop countdown
+                countdownRunning = false
+                countdownHandler.removeCallbacks(countdownRunnable)
+                tvCountdown.parent.visibility = View.GONE
+                
                 g.close()
                 gatt = null
             }
@@ -1119,6 +1232,7 @@ class MeterActivity : AppCompatActivity() {
     override fun onDestroy() {
         stopScan()
         handler.removeCallbacks(pollTask)
+        countdownHandler.removeCallbacks(countdownRunnable)
         disconnectFromCurrentDevice()
         super.onDestroy()
     }
