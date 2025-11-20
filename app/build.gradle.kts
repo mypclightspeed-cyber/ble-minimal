@@ -11,13 +11,13 @@ android {
         applicationId = "com.example.blescan"
         minSdk = 21
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 2  // Changed from 1 to 2
+        versionName = "1.1"  // Changed from 1.0 to 1.1
     }
 
     buildTypes {
         getByName("release") {
-            isMinifyEnabled = false
+            isMinifyEnabled = true  // Changed from false to true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
         getByName("debug") { }
