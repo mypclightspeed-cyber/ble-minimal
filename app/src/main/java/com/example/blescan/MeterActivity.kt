@@ -119,6 +119,7 @@ class MeterActivity : AppCompatActivity() {
     private lateinit var tvName: TextView
     private lateinit var tvFetStatus: TextView
     private lateinit var tvCountdown: TextView
+    private lateinit var countdownCard: LinearLayout
     private lateinit var thermometerView: ThermometerView
     private lateinit var btnWriteAndEnable: Button
 
@@ -183,7 +184,7 @@ class MeterActivity : AppCompatActivity() {
             }
         }
 
-        btnScan = Button(this).apply { text = "Scan Amitis BMS" }
+        btnScan = Button(this).apply { text = "Scan Amitis Battery" }
         list = ListView(this)
 
         // Gauge style 3 (modern half-circle)
@@ -319,7 +320,7 @@ class MeterActivity : AppCompatActivity() {
             }
             
             val controlButton = Button(this).apply {
-                text = "Switch ON"
+                text = "E.Switch ON"
                 setBackgroundColor(Color.parseColor("#DC2626"))
                 setTextColor(Color.WHITE)
                 setPadding(32, 16, 32, 16)
@@ -375,7 +376,7 @@ class MeterActivity : AppCompatActivity() {
         val (cardCurr, currValue) = makeCard("Current (A)", "#DC143C")
         val (cardTemp, tempPair) = makeThermometerCard()
         val (fetControlCard, fetPair) = makeFetControlCard()
-        val (countdownCard, countdownValue) = makeCountdownCard()
+        val (countdownCardView, countdownValue) = makeCountdownCard()
         
         tvVolt = voltValue
         tvCurr = currValue
@@ -385,6 +386,7 @@ class MeterActivity : AppCompatActivity() {
         tvFetStatus = fetPair.first
         btnWriteAndEnable = fetPair.second
         tvCountdown = countdownValue
+        countdownCard = countdownCardView
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -441,11 +443,12 @@ class MeterActivity : AppCompatActivity() {
         }
 
         val title = TextView(this).apply {
-            text = "Emergency Start Battery \n After Accept  Wait and Don't Leave for 30S! "
-            textSize = 14f
+            text = "Emergency Start Battery\nAfter Accept Wait & Don't Leave for 30S!"
+            textSize = 16f
             setTypeface(Typeface.DEFAULT, Typeface.BOLD)
             setTextColor(Color.BLACK)
             gravity = Gravity.CENTER
+            setLineSpacing(1.2f, 1.2f)
         }
         dialogView.addView(title)
 
@@ -504,7 +507,7 @@ class MeterActivity : AppCompatActivity() {
         updateCountdownDisplay()
         
         // Show countdown card
-        tvCountdown.parent.visibility = View.VISIBLE
+        countdownCard.visibility = View.VISIBLE
         
         countdownHandler.postDelayed(countdownRunnable, 1000)
     }
@@ -527,7 +530,7 @@ class MeterActivity : AppCompatActivity() {
             // Hide card when countdown completes
             if (countdownSeconds == 0) {
                 handler.postDelayed({
-                    tvCountdown.parent.visibility = View.GONE
+                    countdownCard.visibility = View.GONE
                 }, 2000)
             }
         }
@@ -637,7 +640,7 @@ class MeterActivity : AppCompatActivity() {
                     controlFets()
                     
                     runOnUiThread {
-                        btnWriteAndEnable.text = "Waiting...30S"
+                        btnWriteAndEnable.text = "Default...30S"
                     }
                     toast("Initial settings written. Reverting in 30 seconds...")
                     
@@ -743,7 +746,7 @@ class MeterActivity : AppCompatActivity() {
                     // Reset button state
                     runOnUiThread {
                         btnWriteAndEnable.isEnabled = true
-                        btnWriteAndEnable.text = "Switch ON"
+                        btnWriteAndEnable.text = "E.Switch ON"
                     }
                     
                     toast("Settings reverted and FETs enabled")
@@ -971,7 +974,7 @@ class MeterActivity : AppCompatActivity() {
         tvName.text = ""
         tvFetStatus.text = "Charge: - | Discharge: -"
         thermometerView.setTemperature(0.0)
-        tvCountdown.parent.visibility = View.GONE
+        countdownCard.visibility = View.GONE
 
         scanning = true
         toast("Scanning for ${SCAN_MS/1000}s...")
@@ -1017,7 +1020,7 @@ class MeterActivity : AppCompatActivity() {
         tvTemp.text = "-"
         tvFetStatus.text = "Charge: - | Discharge: -"
         thermometerView.setTemperature(0.0)
-        tvCountdown.parent.visibility = View.GONE
+        countdownCard.visibility = View.GONE
         
         gatt = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M)
             device.connectGatt(this, false, gattCb, BluetoothDevice.TRANSPORT_LE)
@@ -1036,7 +1039,7 @@ class MeterActivity : AppCompatActivity() {
         // Stop countdown
         countdownRunning = false
         countdownHandler.removeCallbacks(countdownRunnable)
-        tvCountdown.parent.visibility = View.GONE
+        countdownCard.visibility = View.GONE
         
         gatt?.let { g ->
             try {
@@ -1064,7 +1067,7 @@ class MeterActivity : AppCompatActivity() {
                 // Stop countdown
                 countdownRunning = false
                 countdownHandler.removeCallbacks(countdownRunnable)
-                tvCountdown.parent.visibility = View.GONE
+                countdownCard.visibility = View.GONE
                 
                 g.close()
                 gatt = null
