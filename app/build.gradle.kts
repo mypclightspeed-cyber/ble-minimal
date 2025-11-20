@@ -1,38 +1,43 @@
 plugins {
-    id("com.android.application")
-    kotlin("android")
+    id 'com.android.application'
 }
 
 android {
-    namespace = "com.example.blescan"
-    compileSdk = 34
-
+    namespace 'com.example.blescan'
+    compileSdk 34
+    
     defaultConfig {
-        applicationId = "com.example.blescan"
-        minSdk = 21
-        targetSdk = 34
-        versionCode = 2  // Changed from 1 to 2
-        versionName = "1.1"  // Changed from 1.0 to 1.1
+        applicationId "com.example.blescan"
+        minSdk 21
+        targetSdk 34
+        versionCode 1
+        versionName "1.0"
+        
+        // Remove this if you don't need it
+        // missingDimensionStrategy 'ads', 'admob'
     }
-
+    
     buildTypes {
-        getByName("release") {
-            isMinifyEnabled = true  // Changed from false to true
-            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
-        getByName("debug") { }
     }
-
+    
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_17
-        targetCompatibility = JavaVersion.VERSION_17
-    }
-    kotlinOptions {
-        jvmTarget = "17"
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
     }
 }
 
 dependencies {
-    implementation("androidx.appcompat:appcompat:1.6.1")
-    implementation("androidx.core:core-ktx:1.12.0")
+    implementation 'androidx.appcompat:appcompat:1.6.1'
+    implementation 'com.google.android.material:material:1.10.0'
+    implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
+    
+    // BLE dependencies
+    implementation 'no.nordicsemi.android:ble:2.7.1'
+    
+    // Optional: Remove if you don't use Google Play Services
+    // implementation 'com.google.android.gms:play-services-location:21.0.1'
 }
