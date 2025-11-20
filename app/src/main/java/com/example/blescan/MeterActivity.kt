@@ -277,7 +277,7 @@ class MeterActivity : AppCompatActivity() {
             }
             
             val statusTitle = TextView(this).apply {
-                text = "FET Status"
+                text = "BMS Status"
                 textSize = 16f
                 setTypeface(Typeface.DEFAULT, Typeface.BOLD)
                 setTextColor(Color.WHITE)
@@ -301,7 +301,7 @@ class MeterActivity : AppCompatActivity() {
             }
             
             val controlButton = Button(this).apply {
-                text = "Force ON"
+                text = "Switch ON"
                 setBackgroundColor(Color.parseColor("#DC2626"))
                 setTextColor(Color.WHITE)
                 setPadding(32, 16, 32, 16)
@@ -400,7 +400,7 @@ class MeterActivity : AppCompatActivity() {
         val packUndervoltageRelease = (TEMP_CELL_UNDERVOLTAGE_RELEASE * cellCount * 100).toInt()
         val defaultPackUndervoltage = (DEFAULT_CELL_UNDERVOLTAGE * cellCount * 100).toInt()
         val defaultPackUndervoltageRelease = (DEFAULT_CELL_UNDERVOLTAGE_RELEASE * cellCount * 100).toInt()
-
+/*
         val infoText = TextView(this).apply {
             text = "Detected: ${cellCount}S Configuration\n\n" +
                     "Initial Settings (30 seconds):\n" +
@@ -416,6 +416,7 @@ class MeterActivity : AppCompatActivity() {
             setTextColor(Color.DKGRAY)
             setPadding(0, 16, 0, 16)
         }
+*/       
         dialogView.addView(infoText)
 
         val alertDialog = AlertDialog.Builder(this)
@@ -445,7 +446,7 @@ class MeterActivity : AppCompatActivity() {
         // Update button state
         runOnUiThread {
             btnWriteAndEnable.isEnabled = false
-            btnWriteAndEnable.text = "Writing..."
+            btnWriteAndEnable.text = "E.Start..."
         }
         
         // Clear UI values to indicate write mode
@@ -473,7 +474,7 @@ class MeterActivity : AppCompatActivity() {
                 handler.postDelayed({
                     eepromWriteStep = 2
                     executeEepromWriteSequence()
-                }, 2000)
+                }, 1000)
             }
             2 -> {
                 // Write cell undervoltage protection (2.0V = 2000mV)
@@ -484,7 +485,7 @@ class MeterActivity : AppCompatActivity() {
                 handler.postDelayed({
                     eepromWriteStep = 3
                     executeEepromWriteSequence()
-                }, 2000)
+                }, 1000)
             }
             3 -> {
                 // Write cell undervoltage release (2.1V = 2100mV)
@@ -495,7 +496,7 @@ class MeterActivity : AppCompatActivity() {
                 handler.postDelayed({
                     eepromWriteStep = 4
                     executeEepromWriteSequence()
-                }, 2000)
+                }, 1000)
             }
             4 -> {
                 // Calculate and write pack undervoltage protection
@@ -510,7 +511,7 @@ class MeterActivity : AppCompatActivity() {
                 handler.postDelayed({
                     eepromWriteStep = 5
                     executeEepromWriteSequence()
-                }, 2000)
+                }, 1000)
             }
             5 -> {
                 // Calculate and write pack undervoltage release
@@ -525,7 +526,7 @@ class MeterActivity : AppCompatActivity() {
                 handler.postDelayed({
                     eepromWriteStep = 6
                     executeEepromWriteSequence()
-                }, 2000)
+                }, 1000)
             }
             6 -> {
                 // Exit factory mode
@@ -536,7 +537,7 @@ class MeterActivity : AppCompatActivity() {
                     controlFets()
                     
                     runOnUiThread {
-                        btnWriteAndEnable.text = "Reverting in 30s..."
+                        btnWriteAndEnable.text = "B2Normal(30s)..."
                     }
                     toast("Initial settings written. Reverting in 30 seconds...")
                     
@@ -548,7 +549,7 @@ class MeterActivity : AppCompatActivity() {
                         revertToDefaultSettings()
                     }, 30000)
                     
-                }, 2000)
+                }, 1000)
             }
         }
     }
@@ -574,7 +575,7 @@ class MeterActivity : AppCompatActivity() {
                 handler.postDelayed({
                     eepromWriteStep = 102
                     executeRevertSequence()
-                }, 2000)
+                }, 1000)
             }
             102 -> {
                 // Write default cell undervoltage protection (2.7V = 2700mV)
@@ -585,7 +586,7 @@ class MeterActivity : AppCompatActivity() {
                 handler.postDelayed({
                     eepromWriteStep = 103
                     executeRevertSequence()
-                }, 2000)
+                }, 1000)
             }
             103 -> {
                 // Write default cell undervoltage release (2.8V = 2800mV)
@@ -596,7 +597,7 @@ class MeterActivity : AppCompatActivity() {
                 handler.postDelayed({
                     eepromWriteStep = 104
                     executeRevertSequence()
-                }, 2000)
+                }, 1000)
             }
             104 -> {
                 // Calculate and write default pack undervoltage protection
@@ -611,7 +612,7 @@ class MeterActivity : AppCompatActivity() {
                 handler.postDelayed({
                     eepromWriteStep = 105
                     executeRevertSequence()
-                }, 2000)
+                }, 1000)
             }
             105 -> {
                 // Calculate and write default pack undervoltage release
@@ -626,7 +627,7 @@ class MeterActivity : AppCompatActivity() {
                 handler.postDelayed({
                     eepromWriteStep = 106
                     executeRevertSequence()
-                }, 2000)
+                }, 1000)
             }
             106 -> {
                 writeToCharacteristic(CMD_EXIT_FACTORY)
@@ -660,7 +661,7 @@ class MeterActivity : AppCompatActivity() {
                         }
                     }
                     
-                }, 2000)
+                }, 1000)
             }
         }
     }
