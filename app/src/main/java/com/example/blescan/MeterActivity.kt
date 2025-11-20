@@ -416,9 +416,9 @@ class MeterActivity : AppCompatActivity() {
             setTextColor(Color.DKGRAY)
             setPadding(0, 16, 0, 16)
         }
-*/       
+       
         dialogView.addView(infoText)
-
+*/
         val alertDialog = AlertDialog.Builder(this)
             .setView(dialogView)
             .setPositiveButton("Write & Enable FETs") { dialog, _ ->
