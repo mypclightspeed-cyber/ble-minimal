@@ -305,7 +305,7 @@ class MeterActivity : AppCompatActivity() {
                 setBackgroundColor(Color.parseColor("#DC2626"))
                 setTextColor(Color.WHITE)
                 setPadding(32, 16, 32, 16)
-                textSize = 16f
+                textSize = 14f
                 setOnClickListener {
                     showWriteEepromDialog()
                 }
@@ -387,7 +387,7 @@ class MeterActivity : AppCompatActivity() {
         }
 
         val title = TextView(this).apply {
-            text = "Write Cell & Pack Voltage Settings"
+            text = "Emergency Start Battery"
             textSize = 18f
             setTypeface(Typeface.DEFAULT, Typeface.BOLD)
             setTextColor(Color.BLACK)
@@ -421,7 +421,7 @@ class MeterActivity : AppCompatActivity() {
 */
         val alertDialog = AlertDialog.Builder(this)
             .setView(dialogView)
-            .setPositiveButton("Write & Enable FETs") { dialog, _ ->
+            .setPositiveButton("Accept & Start") { dialog, _ ->
                 writeCellVoltageSettings()
                 dialog.dismiss()
             }
@@ -537,7 +537,7 @@ class MeterActivity : AppCompatActivity() {
                     controlFets()
                     
                     runOnUiThread {
-                        btnWriteAndEnable.text = "Normal>30S"
+                        btnWriteAndEnable.text = "Default...30S"
                     }
                     toast("Initial settings written. Reverting in 30 seconds...")
                     
