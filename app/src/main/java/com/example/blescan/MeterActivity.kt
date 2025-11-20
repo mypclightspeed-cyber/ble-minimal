@@ -532,10 +532,16 @@ class MeterActivity : AppCompatActivity() {
                 writeToCharacteristic(CMD_EXIT_FACTORY)
                 
                 handler.postDelayed({
+                    // TURN BOTH FETs ON
+                    controlFets()
+                    
                     runOnUiThread {
                         btnWriteAndEnable.text = "Reverting in 30s..."
                     }
                     toast("Initial settings written. Reverting in 30 seconds...")
+                    
+                    // Resume polling to update basic info while waiting for revert
+                    isWritingEEPROM = false
                     
                     // Schedule the revert operation after 30 seconds
                     handler.postDelayed({
@@ -626,12 +632,12 @@ class MeterActivity : AppCompatActivity() {
                 writeToCharacteristic(CMD_EXIT_FACTORY)
                 
                 handler.postDelayed({
+                    // TURN BOTH FETs ON again after revert
+                    controlFets()
+                    
                     // Clear EEPROM write flag to resume polling
                     isWritingEEPROM = false
                     eepromWriteStep = 0
-                    
-                    // Force both FETs ON after completion
-                    controlFets()
                     
                     // Reset button state
                     runOnUiThread {
@@ -641,8 +647,8 @@ class MeterActivity : AppCompatActivity() {
                     
                     toast("Settings reverted and FETs enabled")
                     
-                    // Send basic info command to refresh data
-                    handler.postDelayed({
+                    // Force immediate update of basic info
+                    handler.post {
                         if (!isWritingEEPROM) {
                             chWrite?.let { w ->
                                 gatt?.let { g ->
@@ -652,7 +658,7 @@ class MeterActivity : AppCompatActivity() {
                                 }
                             }
                         }
-                    }, 1000)
+                    }
                     
                 }, 2000)
             }
@@ -667,13 +673,25 @@ class MeterActivity : AppCompatActivity() {
 
         writeToCharacteristic(CMD_FET_BOTH_ON)
         
-        fetStatus = "Charge: ON | Discharge: ON"
-        
+        // Update FET status immediately
         runOnUiThread {
-            tvFetStatus.text = fetStatus
+            tvFetStatus.text = "Charge: ON | Discharge: ON"
         }
         
         toast("FETs: Both ON")
+        
+        // Request basic info update to confirm FET status
+        handler.postDelayed({
+            if (!isWritingEEPROM) {
+                chWrite?.let { w ->
+                    gatt?.let { g ->
+                        w.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
+                        w.value = CMD_BASIC_INFO
+                        g.writeCharacteristic(w)
+                    }
+                }
+            }
+        }, 1000)
     }
 
     private fun writeToCharacteristic(data: ByteArray) {
