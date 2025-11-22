@@ -1149,7 +1149,7 @@ class MeterActivity : AppCompatActivity() {
     }
 
     private fun handleBasicInfo(p: ByteArray) {
-        if (p.size < 38) return // Ensure we have enough data for register 0x25
+        if (p.size < 24) return // Ensure we have enough data for register 0x25
         
         // Extract basic info
         val vRaw = ((p[0].toInt() and 0xFF) shl 8) or (p[1].toInt() and 0xFF)
