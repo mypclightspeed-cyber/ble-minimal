@@ -1182,17 +1182,16 @@ class MeterActivity : AppCompatActivity() {
         val dischargeCurrentLimit = (fetStatusByte and 0x08) != 0
 
         // Extract temperature
-        val dataStart = 4
+        
         var tempValue = 0.0
         var tempText = "-"
-        if (p.size > dataStart + 22) {
-            val ntcCount = p[dataStart + 22].toInt() and 0xFF
-            val firstTempIdx = dataStart + 23
-            if (ntcCount > 0 && p.size >= firstTempIdx + 2) {
-                val tRaw = ((p[firstTempIdx].toInt() and 0xFF) shl 8) or (p[firstTempIdx + 1].toInt() and 0xFF)
-                tempValue = (tRaw - 2731) / 10.0
-                if (!tempValue.isNaN() && tempValue > -100 && tempValue < 200) {
-                    tempText = String.format("%.1f", tempValue)
+        if (p.size > 28) {
+            val ntcCount = if (p.size > 26) p[26].toInt() and 0xFF else 0
+    if (ntcCount > 0 && p.size >= 29) {
+        val tRaw = ((p[27].toInt() and 0xFF) shl 8) or (p[28].toInt() and 0xFF)
+        tempValue = (tRaw - 2731) / 10.0
+        if (!tempValue.isNaN() && tempValue > -100 && tempValue < 200) {
+            tempText = String.format("%.1f", tempValue)
                 }
             }
         }
