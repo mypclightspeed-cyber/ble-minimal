@@ -1185,16 +1185,13 @@ class MeterActivity : AppCompatActivity() {
         
         var tempValue = 0.0
         var tempText = "-"
-        if (p.size > 25) {
-            val ntcCount = if (p.size > 26) p[26].toInt() and 0xFF else 0
-    if (ntcCount > 0 ) {
+        
+    
         val tRaw = ((p[27].toInt() and 0xFF) shl 8) or (p[28].toInt() and 0xFF)
         tempValue = (tRaw - 2731) / 10.0
         if (!tempValue.isNaN() && tempValue > -100 && tempValue < 200) {
             tempText = String.format("%.1f", tempValue)
                 }
-            }
-        }
 
         runOnUiThread {
             gauge.setPercent(soc.coerceIn(0, 100))
