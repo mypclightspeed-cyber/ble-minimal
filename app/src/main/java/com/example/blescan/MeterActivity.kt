@@ -1187,7 +1187,7 @@ class MeterActivity : AppCompatActivity() {
         var tempText = "-"
         
     
-        val tRaw = ((p[27].toInt() and 0xFF) shl 8) or (p[28].toInt() and 0xFF)
+        val tRaw = ((p[21].toInt() and 0xFF) shl 8) or (p[22].toInt() and 0xFF)
         tempValue = (tRaw - 2731) / 10.0
         if (!tempValue.isNaN() && tempValue > -100 && tempValue < 200) {
             tempText = String.format("%.1f", tempValue)
