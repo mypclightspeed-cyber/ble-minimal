@@ -6,8 +6,10 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.bluetooth.*
 import android.bluetooth.le.*
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.graphics.*
 import android.location.LocationManager
@@ -70,7 +72,7 @@ class MeterActivity : AppCompatActivity() {
     private val TEMP_CELL_UNDERVOLTAGE_RELEASE = 2.1f
 
     // Alarm thresholds
-    private val ALARM_SOC_THRESHOLD = 5  // Changed from 26 to 5
+    private val ALARM_SOC_THRESHOLD = 5
     private val ALARM_TEMP_THRESHOLD = 25.0
 
     // Notification constants
@@ -78,7 +80,8 @@ class MeterActivity : AppCompatActivity() {
     private val NOTIFICATION_CHANNEL_NAME = "BMS Alerts"
     private val NOTIFICATION_ID_LOW_BATTERY = 1001
     private val NOTIFICATION_ID_HIGH_TEMP = 1002
-    private val NOTIFICATION_ACTION_SILENCE = "SILENCE_ALARM"
+    private val ACTION_SILENCE_ALARM = "com.example.blescan.ACTION_SILENCE_ALARM"
+    private val EXTRA_ALARM_TYPE = "alarm_type"
     
     // Cell count management
     private var cellCount = 0
@@ -94,6 +97,7 @@ class MeterActivity : AppCompatActivity() {
     private var mediaPlayer: MediaPlayer? = null
     private var vibrator: Vibrator? = null
     private var notificationManager: NotificationManager? = null
+    private lateinit var alarmSilenceReceiver: AlarmSilenceReceiver
 
     // Countdown variables
     private var countdownSeconds = 30
@@ -191,12 +195,13 @@ class MeterActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Handle notification silence action
-        if (intent.action == NOTIFICATION_ACTION_SILENCE) {
-            val alarmType = intent.getStringExtra("alarm_type")
-            if (alarmType != null) {
-                silenceAlarm(alarmType)
-            }
+        // Create and register the alarm silence receiver
+        alarmSilenceReceiver = AlarmSilenceReceiver()
+        val filter = IntentFilter(ACTION_SILENCE_ALARM)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            registerReceiver(alarmSilenceReceiver, filter, RECEIVER_EXPORTED)
+        } else {
+            registerReceiver(alarmSilenceReceiver, filter)
         }
 
         val logo = ImageView(this).apply {
@@ -498,22 +503,20 @@ class MeterActivity : AppCompatActivity() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        // Create silence action intent
-        val silenceIntent = Intent(this, MeterActivity::class.java).apply {
-            action = NOTIFICATION_ACTION_SILENCE
-            putExtra("alarm_type", "low_battery")
-            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP
+        // Create silence action intent using BroadcastReceiver
+        val silenceIntent = Intent(ACTION_SILENCE_ALARM).apply {
+            putExtra(EXTRA_ALARM_TYPE, "low_battery")
         }
-        val silencePendingIntent = PendingIntent.getActivity(
+        val silencePendingIntent = PendingIntent.getBroadcast(
             this,
-            3,
+            100,
             silenceIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
         val notification = NotificationCompat.Builder(this, NOTIFICATION_CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_dialog_alert)
-            .setContentTitle("⚠️ CRITICAL LOW BATTERY!")
+            .setContentTitle("⚠️ Low Battery Alert")
             .setContentText("Battery SOC is $soc% - Connect charger immediately!")
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setCategory(NotificationCompat.CATEGORY_ALARM)
@@ -545,22 +548,20 @@ class MeterActivity : AppCompatActivity() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        // Create silence action intent
-        val silenceIntent = Intent(this, MeterActivity::class.java).apply {
-            action = NOTIFICATION_ACTION_SILENCE
-            putExtra("alarm_type", "high_temp")
-            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP
+        // Create silence action intent using BroadcastReceiver
+        val silenceIntent = Intent(ACTION_SILENCE_ALARM).apply {
+            putExtra(EXTRA_ALARM_TYPE, "high_temp")
         }
-        val silencePendingIntent = PendingIntent.getActivity(
+        val silencePendingIntent = PendingIntent.getBroadcast(
             this,
-            4,
+            101,
             silenceIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
         val notification = NotificationCompat.Builder(this, NOTIFICATION_CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_dialog_alert)
-            .setContentTitle("🌡️ High Temperature Alert")
+            .setContentTitle("🌡︄1�7 High Temperature Alert")
             .setContentText("Battery temperature is ${String.format("%.1f", temperature)}°C - Check cooling!")
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setCategory(NotificationCompat.CATEGORY_ALARM)
@@ -587,7 +588,7 @@ class MeterActivity : AppCompatActivity() {
         }
         val pendingIntent = PendingIntent.getActivity(
             this,
-            notificationId + 100,
+            notificationId + 1000,
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
@@ -621,7 +622,7 @@ class MeterActivity : AppCompatActivity() {
         isHighTempSilenced = false
     }
 
-    private fun silenceAlarm(alarmType: String) {
+    fun silenceAlarm(alarmType: String) {
         runOnUiThread {
             // Stop the sound and vibration
             stopAlarm()
@@ -642,7 +643,7 @@ class MeterActivity : AppCompatActivity() {
                     isHighTempSilenced = true
                     updateSilencedNotification(
                         NOTIFICATION_ID_HIGH_TEMP,
-                        "🌡️ High Temperature (Silenced)",
+                        "🌡︄1�7 High Temperature (Silenced)",
                         "Battery temperature high but alarm silenced",
                         android.R.color.holo_orange_dark
                     )
@@ -721,10 +722,10 @@ class MeterActivity : AppCompatActivity() {
 
     private fun checkAndTriggerSOCAlarm(currentSOC: Int, currentTemp: Double) {
         runOnUiThread {
-            // Check for low battery (5% or below)
+            // Check for low battery
             when {
-                currentSOC <= ALARM_SOC_THRESHOLD -> {  // Removed the "currentSOC > 0" condition
-                    // Always show notification when SOC is 5% or below
+                currentSOC <= ALARM_SOC_THRESHOLD && currentSOC > 0 -> {
+                    // Always show notification when SOC is low
                     if (!isLowBatterySilenced) {
                         showLowBatteryNotification(currentSOC)
                     } else {
@@ -741,16 +742,28 @@ class MeterActivity : AppCompatActivity() {
                         isAlarmActive = true
                         playAlarmSound()
                         startVibration()
-                        toast("⚠️ CRITICAL LOW BATTERY: SOC is $currentSOC%")
+                        toast("⚠️ LOW BATTERY WARNING: SOC is $currentSOC%")
                     }
                     
                     // Update UI
-                    bannerWarn.text = "⚠️ CRITICAL LOW BATTERY: $currentSOC% - Connect Charger!"
+                    bannerWarn.text = "⚠️ LOW BATTERY: $currentSOC% - Connect Charger!"
                     bannerWarn.setBackgroundColor(Color.parseColor("#DC2626"))
                     bannerWarn.visibility = View.VISIBLE
                 }
+                currentSOC == 0 -> {
+                    // Battery is empty - never silence this
+                    showLowBatteryNotification(0)
+                    if (!isAlarmActive) {
+                        isAlarmActive = true
+                        playAlarmSound()
+                        startVibration()
+                    }
+                    bannerWarn.text = "⚠️ BATTERY EMPTY: 0% - Connect Charger Immediately!"
+                    bannerWarn.setBackgroundColor(Color.parseColor("#991B1B"))
+                    bannerWarn.visibility = View.VISIBLE
+                }
                 currentSOC > ALARM_SOC_THRESHOLD -> {
-                    // SOC has risen above 5% threshold
+                    // SOC has risen above threshold
                     if (isAlarmActive) {
                         stopAlarm()
                         isAlarmActive = false
@@ -768,7 +781,7 @@ class MeterActivity : AppCompatActivity() {
                 } else {
                     updateSilencedNotification(
                         NOTIFICATION_ID_HIGH_TEMP,
-                        "🌡️ High Temperature (Silenced)",
+                        "🌡︄1�7 High Temperature (Silenced)",
                         "Battery temp: ${String.format("%.1f", currentTemp)}°C",
                         android.R.color.holo_orange_dark
                     )
@@ -779,7 +792,7 @@ class MeterActivity : AppCompatActivity() {
                     isAlarmActive = true
                     playAlarmSound()
                     startVibration()
-                    toast("🌡️ HIGH TEMPERATURE: ${String.format("%.1f", currentTemp)}°C")
+                    toast("🌡︄1�7 HIGH TEMPERATURE: ${String.format("%.1f", currentTemp)}°C")
                 }
                 
                 // Update temperature display to show warning
@@ -788,7 +801,7 @@ class MeterActivity : AppCompatActivity() {
                 
                 // Show warning in banner if not already showing battery warning
                 if (currentSOC > ALARM_SOC_THRESHOLD) {
-                    bannerWarn.text = "🌡️ HIGH TEMP: ${String.format("%.1f", currentTemp)}°C - Check Cooling!"
+                    bannerWarn.text = "🌡︄1�7 HIGH TEMP: ${String.format("%.1f", currentTemp)}°C - Check Cooling!"
                     bannerWarn.setBackgroundColor(Color.parseColor("#F59E0B"))
                     bannerWarn.visibility = View.VISIBLE
                 }
@@ -1220,6 +1233,29 @@ class MeterActivity : AppCompatActivity() {
         }, 300)
     }
 
+    override fun onDestroy() {
+        super.onDestroy()
+        // Unregister the receiver
+        try {
+            unregisterReceiver(alarmSilenceReceiver)
+        } catch (e: IllegalArgumentException) {
+            // Receiver was not registered, ignore
+        }
+        
+        stopScan()
+        handler.removeCallbacks(pollTask)
+        countdownHandler.removeCallbacks(countdownRunnable)
+        
+        // Stop alarm before disconnecting
+        stopAlarm()
+        
+        // Dismiss all notifications
+        dismissLowBatteryNotification()
+        dismissHighTemperatureNotification()
+        
+        disconnectFromCurrentDevice()
+    }
+
     private fun ensurePrereqs(): Boolean {
         val btOn = bluetoothAdapter?.isEnabled == true
         val locOn = isLocationEnabled(this)
@@ -1648,21 +1684,17 @@ class MeterActivity : AppCompatActivity() {
         else -> "$s"
     }
     private fun toast(msg: String) = Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
-    
-    override fun onDestroy() {
-        stopScan()
-        handler.removeCallbacks(pollTask)
-        countdownHandler.removeCallbacks(countdownRunnable)
-        
-        // Stop alarm before disconnecting
-        stopAlarm()
-        
-        // Dismiss all notifications
-        dismissLowBatteryNotification()
-        dismissHighTemperatureNotification()
-        
-        disconnectFromCurrentDevice()
-        super.onDestroy()
+
+    // Inner BroadcastReceiver class
+    inner class AlarmSilenceReceiver : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            if (intent.action == ACTION_SILENCE_ALARM) {
+                val alarmType = intent.getStringExtra(EXTRA_ALARM_TYPE)
+                if (alarmType != null) {
+                    silenceAlarm(alarmType)
+                }
+            }
+        }
     }
 
     class ThermometerView(context: Context) : View(context) {
@@ -1845,7 +1877,6 @@ class MeterActivity : AppCompatActivity() {
             drawTicks(c, rect, startAngle, sweepTotal)
 
             val levelColor = when {
-                pct <= 5 -> Color.RED  // Changed to 5% for red
                 pct < 15 -> Color.RED
                 pct < 30 -> Color.YELLOW
                 pct <= 80 -> Color.GREEN
