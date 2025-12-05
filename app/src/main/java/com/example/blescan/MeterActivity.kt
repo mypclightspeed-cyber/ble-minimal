@@ -1182,17 +1182,28 @@ class MeterActivity : AppCompatActivity() {
         val dischargeCurrentLimit = (fetStatusByte and 0x08) != 0
 
         // Extract temperature
-        
         var tempValue = 0.0
-        var tempText = "-"
+        var temText = "-"
+        var tempValue1 = 0.0
+        var tempValue2 = 0.0
+        var tempValue3 = 0.0
+        
         
     
-        val tRaw = ((p[23].toInt() and 0xFF) shl 8) or (p[24].toInt() and 0xFF)
-        tempValue = (tRaw - 2731) / 10.0
+        val tRaw1 = ((p[23].toInt() and 0xFF) shl 8) or (p[24].toInt() and 0xFF)
+        tempValue1 = (tRaw1 - 2731) / 10.0
+        tempValue = tampValue1
+        val tRaw2 = ((p[25].toInt() and 0xFF) shl 8) or (p[26].toInt() and 0xFF)
+        tempValue2 = (tRaw2 - 2731) / 10.0
+        if (tempValue2 > temValue) {
+           tempValue = tempValue2}
+        val tRaw3 = ((p[27].toInt() and 0xFF) shl 8) or (p[28].toInt() and 0xFF)
+        tempValue3 = (tRaw3 - 2731) / 10.0
+        if (tempValue3 > temValue) {
+           tempValue = temValue3}
         if (!tempValue.isNaN() && tempValue > -100 && tempValue < 200) {
             tempText = String.format("%.1f", tempValue)
-                }
-
+                }      
         runOnUiThread {
             gauge.setPercent(soc.coerceIn(0, 100))
             tvVolt.text = String.format("%.3f", voltage)
