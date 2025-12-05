@@ -561,8 +561,8 @@ class MeterActivity : AppCompatActivity() {
 
         val notification = NotificationCompat.Builder(this, NOTIFICATION_CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_dialog_alert)
-            .setContentTitle("馃尅锔� High Temperature Alert")
-            .setContentText("Battery temperature is ${String.format("%.1f", temperature)}掳C - Check cooling!")
+            .setContentTitle("High Temperature Alert")
+            .setContentText("Battery temperature is ${String.format("%.1f", temperature)}C - Check cooling!")
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setCategory(NotificationCompat.CATEGORY_ALARM)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
@@ -643,7 +643,7 @@ class MeterActivity : AppCompatActivity() {
                     isHighTempSilenced = true
                     updateSilencedNotification(
                         NOTIFICATION_ID_HIGH_TEMP,
-                        "馃尅锔� High Temperature (Silenced)",
+                        "High Temperature (Silenced)",
                         "Battery temperature high but alarm silenced",
                         android.R.color.holo_orange_dark
                     )
