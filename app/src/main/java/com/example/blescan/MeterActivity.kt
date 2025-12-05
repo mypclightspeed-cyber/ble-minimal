@@ -724,14 +724,14 @@ class MeterActivity : AppCompatActivity() {
         runOnUiThread {
             // Check for low battery
             when {
-                currentSOC <= ALARM_SOC_THRESHOLD && currentSOC > 0 -> {
+                currentSOC <= ALARM_SOC_THRESHOLD {
                     // Always show notification when SOC is low
                     if (!isLowBatterySilenced) {
                         showLowBatteryNotification(currentSOC)
                     } else {
                         updateSilencedNotification(
                             NOTIFICATION_ID_LOW_BATTERY,
-                            "鈿狅笍 Low Battery (Silenced)",
+                            "Low Battery (Silenced)",
                             "Battery SOC is $currentSOC%",
                             android.R.color.holo_red_dark
                         )
@@ -742,26 +742,15 @@ class MeterActivity : AppCompatActivity() {
                         isAlarmActive = true
                         playAlarmSound()
                         startVibration()
-                        toast("鈿狅笍 LOW BATTERY WARNING: SOC is $currentSOC%")
+                        toast("LOW BATTERY WARNING: SOC is $currentSOC%")
                     }
                     
                     // Update UI
-                    bannerWarn.text = "鈿狅笍 LOW BATTERY: $currentSOC% - Connect Charger!"
+                    bannerWarn.text = "LOW BATTERY: $currentSOC% - Connect Charger!"
                     bannerWarn.setBackgroundColor(Color.parseColor("#DC2626"))
                     bannerWarn.visibility = View.VISIBLE
                 }
-                currentSOC == 0 -> {
-                    // Battery is empty - never silence this
-                    showLowBatteryNotification(0)
-                    if (!isAlarmActive) {
-                        isAlarmActive = true
-                        playAlarmSound()
-                        startVibration()
-                    }
-                    bannerWarn.text = "鈿狅笍 BATTERY EMPTY: 0% - Connect Charger Immediately!"
-                    bannerWarn.setBackgroundColor(Color.parseColor("#991B1B"))
-                    bannerWarn.visibility = View.VISIBLE
-                }
+                
                 currentSOC > ALARM_SOC_THRESHOLD -> {
                     // SOC has risen above threshold
                     if (isAlarmActive) {
@@ -781,8 +770,8 @@ class MeterActivity : AppCompatActivity() {
                 } else {
                     updateSilencedNotification(
                         NOTIFICATION_ID_HIGH_TEMP,
-                        "馃尅锔� High Temperature (Silenced)",
-                        "Battery temp: ${String.format("%.1f", currentTemp)}掳C",
+                        "High Temperature (Silenced)",
+                        "Battery temp: ${String.format("%.1f", currentTemp)}C",
                         android.R.color.holo_orange_dark
                     )
                 }
@@ -792,7 +781,7 @@ class MeterActivity : AppCompatActivity() {
                     isAlarmActive = true
                     playAlarmSound()
                     startVibration()
-                    toast("馃尅锔� HIGH TEMPERATURE: ${String.format("%.1f", currentTemp)}掳C")
+                    toast(" HIGH TEMPERATURE: ${String.format("%.1f", currentTemp)}C")
                 }
                 
                 // Update temperature display to show warning
@@ -801,7 +790,7 @@ class MeterActivity : AppCompatActivity() {
                 
                 // Show warning in banner if not already showing battery warning
                 if (currentSOC > ALARM_SOC_THRESHOLD) {
-                    bannerWarn.text = "馃尅锔� HIGH TEMP: ${String.format("%.1f", currentTemp)}掳C - Check Cooling!"
+                    bannerWarn.text = "HIGH TEMP: ${String.format("%.1f", currentTemp)}C - Check Cooling!"
                     bannerWarn.setBackgroundColor(Color.parseColor("#F59E0B"))
                     bannerWarn.visibility = View.VISIBLE
                 }
