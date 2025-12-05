@@ -1183,7 +1183,7 @@ class MeterActivity : AppCompatActivity() {
 
         // Extract temperature
         var tempValue = 0.0
-        var temText = "-"
+        var tempText = "-"
         var tempValue1 = 0.0
         var tempValue2 = 0.0
         var tempValue3 = 0.0
@@ -1192,18 +1192,20 @@ class MeterActivity : AppCompatActivity() {
     
         val tRaw1 = ((p[23].toInt() and 0xFF) shl 8) or (p[24].toInt() and 0xFF)
         tempValue1 = (tRaw1 - 2731) / 10.0
-        tempValue = tampValue1
+        tempValue = tempValue1
         val tRaw2 = ((p[25].toInt() and 0xFF) shl 8) or (p[26].toInt() and 0xFF)
         tempValue2 = (tRaw2 - 2731) / 10.0
-        if (tempValue2 > temValue) {
-           tempValue = tempValue2}
+        if (tempValue2 > tempValue) {
+            tempValue = tempValue2
+            }
         val tRaw3 = ((p[27].toInt() and 0xFF) shl 8) or (p[28].toInt() and 0xFF)
         tempValue3 = (tRaw3 - 2731) / 10.0
-        if (tempValue3 > temValue) {
-           tempValue = temValue3}
+        if (tempValue3 > tempValue) {
+            tempValue = tempValue3
+            }
         if (!tempValue.isNaN() && tempValue > -100 && tempValue < 200) {
             tempText = String.format("%.1f", tempValue)
-                }      
+            }      
         runOnUiThread {
             gauge.setPercent(soc.coerceIn(0, 100))
             tvVolt.text = String.format("%.3f", voltage)
