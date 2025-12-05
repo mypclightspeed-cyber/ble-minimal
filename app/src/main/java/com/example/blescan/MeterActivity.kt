@@ -633,7 +633,7 @@ class MeterActivity : AppCompatActivity() {
                     isLowBatterySilenced = true
                     updateSilencedNotification(
                         NOTIFICATION_ID_LOW_BATTERY,
-                        "⚠️ Low Battery (Silenced)",
+                        "Low Battery (Silenced)",
                         "Battery SOC is low but alarm silenced",
                         android.R.color.holo_red_dark
                     )
@@ -724,7 +724,7 @@ class MeterActivity : AppCompatActivity() {
         runOnUiThread {
             // Check for low battery
             when {
-                currentSOC <= ALARM_SOC_THRESHOLD {
+                currentSOC <= ALARM_SOC_THRESHOLD -> {
                     // Always show notification when SOC is low
                     if (!isLowBatterySilenced) {
                         showLowBatteryNotification(currentSOC)
@@ -781,7 +781,7 @@ class MeterActivity : AppCompatActivity() {
                     isAlarmActive = true
                     playAlarmSound()
                     startVibration()
-                    toast(" HIGH TEMPERATURE: ${String.format("%.1f", currentTemp)}C")
+                    toast("HIGH TEMPERATURE: ${String.format("%.1f", currentTemp)}C")
                 }
                 
                 // Update temperature display to show warning
