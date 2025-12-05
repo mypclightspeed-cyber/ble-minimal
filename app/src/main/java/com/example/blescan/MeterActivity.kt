@@ -1,6 +1,9 @@
 package com.example.blescan
 
 import android.Manifest
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
 import android.bluetooth.*
 import android.bluetooth.le.*
 import android.content.Context
@@ -23,6 +26,7 @@ import android.widget.*
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
+import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import java.util.*
 import kotlin.math.*
@@ -65,6 +69,16 @@ class MeterActivity : AppCompatActivity() {
     private val TEMP_CELL_UNDERVOLTAGE = 2.0f
     private val TEMP_CELL_UNDERVOLTAGE_RELEASE = 2.1f
 
+    // Alarm thresholds
+    private val ALARM_SOC_THRESHOLD = 26
+    private val ALARM_TEMP_THRESHOLD = 65.0
+
+    // Notification constants
+    private val NOTIFICATION_CHANNEL_ID = "bms_alerts_channel"
+    private val NOTIFICATION_CHANNEL_NAME = "BMS Alerts"
+    private val NOTIFICATION_ID_LOW_BATTERY = 1001
+    private val NOTIFICATION_ID_HIGH_TEMP = 1002
+    
     // Cell count management
     private var cellCount = 0
 
@@ -72,12 +86,11 @@ class MeterActivity : AppCompatActivity() {
     private var fetStatus = "Unknown"
 
     // SOC Alarm settings
-    private val ALARM_SOC_THRESHOLD = 26
     private var isAlarmActive = false
     private var lastSocAlarmState = 0
     private var mediaPlayer: MediaPlayer? = null
     private var vibrator: Vibrator? = null
-    private var isLowBatteryAlarm = false // Track if banner is showing low battery alarm
+    private var notificationManager: NotificationManager? = null
 
     // Countdown variables
     private var countdownSeconds = 30
@@ -191,6 +204,9 @@ class MeterActivity : AppCompatActivity() {
             setBackgroundColor(Color.parseColor("#DC2626"))
             visibility = View.GONE
             isClickable = true
+            setOnClickListener {
+                openRelevantSettings()
+            }
         }
 
         btnScan = Button(this).apply { text = "Scan Amitis Battery" }
@@ -418,22 +434,12 @@ class MeterActivity : AppCompatActivity() {
         bluetoothAdapter = (getSystemService(BLUETOOTH_SERVICE) as BluetoothManager).adapter
         scanner = bluetoothAdapter?.bluetoothLeScanner
 
-        // Initialize vibrator with null check
-        vibrator = getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
-
-        // Set up banner click listener
-        bannerWarn.setOnClickListener {
-            if (isLowBatteryAlarm) {
-                // Stop alarm when banner is tapped
-                stopAlarm()
-                bannerWarn.visibility = View.GONE
-                isLowBatteryAlarm = false
-                toast("Alarm stopped")
-            } else {
-                // Original behavior for other warnings
-                openRelevantSettings()
-            }
-        }
+        // Initialize vibrator
+        vibrator = getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+        
+        // Initialize notification manager and create channel
+        notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        createNotificationChannel()
 
         adapterLv = ArrayAdapter(this, android.R.layout.simple_list_item_1, ArrayList())
         list.adapter = adapterLv
@@ -450,6 +456,114 @@ class MeterActivity : AppCompatActivity() {
             tvName.text = advertisedName[mac] ?: "Unknown"
             connectTo(dev)
         }
+    }
+
+    private fun createNotificationChannel() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channel = NotificationChannel(
+                NOTIFICATION_CHANNEL_ID,
+                NOTIFICATION_CHANNEL_NAME,
+                NotificationManager.IMPORTANCE_HIGH
+            ).apply {
+                description = "Battery and temperature alerts"
+                enableVibration(true)
+                enableLights(true)
+                lightColor = Color.RED
+                vibrationPattern = longArrayOf(0, 500, 250, 500)
+                lockscreenVisibility = NotificationCompat.VISIBILITY_PUBLIC
+            }
+            notificationManager?.createNotificationChannel(channel)
+        }
+    }
+
+    private fun showLowBatteryNotification(soc: Int) {
+        val intent = Intent(this, MeterActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+        }
+        val pendingIntent = PendingIntent.getActivity(
+            this,
+            0,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val notification = NotificationCompat.Builder(this, NOTIFICATION_CHANNEL_ID)
+            .setSmallIcon(android.R.drawable.ic_dialog_alert)
+            .setContentTitle("⚠️ Low Battery Alert")
+            .setContentText("Battery SOC is $soc% - Connect charger immediately!")
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setCategory(NotificationCompat.CATEGORY_ALARM)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setContentIntent(pendingIntent)
+            .setAutoCancel(false) // Don't auto-cancel, we'll cancel manually
+            .setOngoing(true) // Make it ongoing/persistent
+            .setColor(ContextCompat.getColor(this, android.R.color.holo_red_dark))
+            .setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM))
+            .setVibrate(longArrayOf(0, 500, 250, 500))
+            .addAction(
+                android.R.drawable.ic_menu_close_clear_cancel,
+                "Dismiss",
+                PendingIntent.getBroadcast(
+                    this,
+                    0,
+                    Intent(this, NotificationDismissReceiver::class.java).apply {
+                        putExtra("notification_id", NOTIFICATION_ID_LOW_BATTERY)
+                    },
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                )
+            )
+            .build()
+
+        notificationManager?.notify(NOTIFICATION_ID_LOW_BATTERY, notification)
+    }
+
+    private fun showHighTemperatureNotification(temperature: Double) {
+        val intent = Intent(this, MeterActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+        }
+        val pendingIntent = PendingIntent.getActivity(
+            this,
+            0,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val notification = NotificationCompat.Builder(this, NOTIFICATION_CHANNEL_ID)
+            .setSmallIcon(android.R.drawable.ic_dialog_alert)
+            .setContentTitle("🌡️ High Temperature Alert")
+            .setContentText("Battery temperature is ${String.format("%.1f", temperature)}°C - Check cooling!")
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setCategory(NotificationCompat.CATEGORY_ALARM)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setContentIntent(pendingIntent)
+            .setAutoCancel(false) // Don't auto-cancel, we'll cancel manually
+            .setOngoing(true) // Make it ongoing/persistent
+            .setColor(ContextCompat.getColor(this, android.R.color.holo_orange_dark))
+            .setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM))
+            .setVibrate(longArrayOf(0, 500, 250, 500))
+            .addAction(
+                android.R.drawable.ic_menu_close_clear_cancel,
+                "Dismiss",
+                PendingIntent.getBroadcast(
+                    this,
+                    1,
+                    Intent(this, NotificationDismissReceiver::class.java).apply {
+                        putExtra("notification_id", NOTIFICATION_ID_HIGH_TEMP)
+                    },
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                )
+            )
+            .build()
+
+        notificationManager?.notify(NOTIFICATION_ID_HIGH_TEMP, notification)
+    }
+
+    private fun dismissLowBatteryNotification() {
+        notificationManager?.cancel(NOTIFICATION_ID_LOW_BATTERY)
+    }
+
+    private fun dismissHighTemperatureNotification() {
+        notificationManager?.cancel(NOTIFICATION_ID_HIGH_TEMP)
     }
 
     private fun playAlarmSound() {
@@ -485,30 +599,19 @@ class MeterActivity : AppCompatActivity() {
 
     private fun startVibration() {
         try {
-            vibrator?.let { v ->
-                // Check if device has vibrator
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.HONEYCOMB_MR1) {
-                    if (!v.hasVibrator()) {
-                        return
-                    }
-                }
-                
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    // For Android 8.0 (Oreo) and above
-                    val effect = VibrationEffect.createWaveform(
-                        longArrayOf(500, 500),  // Vibration pattern: vibrate for 500ms, pause for 500ms
-                        0  // Repeat from the beginning
-                    )
-                    v.vibrate(effect)
-                } else {
-                    // For older Android versions - need VIBRATE permission
-                    v.vibrate(longArrayOf(500, 500), 0)
-                }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                // For Android 8.0 (Oreo) and above
+                val effect = VibrationEffect.createWaveform(
+                    longArrayOf(500, 500),  // Vibration pattern: vibrate for 500ms, pause for 500ms
+                    0  // Repeat from the beginning
+                )
+                vibrator?.vibrate(effect)
+            } else {
+                // For older Android versions
+                vibrator?.vibrate(longArrayOf(500, 500), 0)
             }
         } catch (e: Exception) {
             e.printStackTrace()
-            // Log vibration error
-            android.util.Log.e("MeterActivity", "Vibration failed: ${e.message}")
         }
     }
 
@@ -523,45 +626,40 @@ class MeterActivity : AppCompatActivity() {
             
             vibrator?.cancel()
             isAlarmActive = false
-            isLowBatteryAlarm = false
         } catch (e: Exception) {
             e.printStackTrace()
         }
     }
 
-    private fun checkAndTriggerSOCAlarm(currentSOC: Int) {
+    private fun checkAndTriggerSOCAlarm(currentSOC: Int, currentTemp: Double) {
         runOnUiThread {
+            // Check for low battery
             when {
                 currentSOC <= ALARM_SOC_THRESHOLD && currentSOC > 0 -> {
                     if (!isAlarmActive) {
                         // SOC just dropped below threshold
                         isAlarmActive = true
-                        isLowBatteryAlarm = true
                         playAlarmSound()
                         startVibration()
                         
                         // Show a warning toast
                         toast("⚠️ LOW BATTERY WARNING: SOC is $currentSOC%")
                         
-                        // Optionally change gauge color to red when alarm is active
-                        gauge.setPercent(currentSOC)
+                        // Show notification
+                        showLowBatteryNotification(currentSOC)
                         
-                        // Show warning banner
-                        bannerWarn.text = "⚠️ LOW BATTERY: $currentSOC% - Tap to stop alarm!"
+                        // Update UI
+                        bannerWarn.text = "⚠️ LOW BATTERY: $currentSOC% - Connect Charger!"
                         bannerWarn.setBackgroundColor(Color.parseColor("#DC2626"))
                         bannerWarn.visibility = View.VISIBLE
-                        bannerWarn.isClickable = true
-                    } else if (isAlarmActive) {
-                        // Update banner text with current SOC
-                        bannerWarn.text = "⚠️ LOW BATTERY: $currentSOC% - Tap to stop alarm!"
                     }
                 }
                 currentSOC > ALARM_SOC_THRESHOLD -> {
                     if (isAlarmActive) {
                         // SOC has risen above threshold, stop alarm
                         stopAlarm()
+                        dismissLowBatteryNotification()
                         bannerWarn.visibility = View.GONE
-                        isLowBatteryAlarm = false
                     }
                 }
                 currentSOC == 0 -> {
@@ -569,12 +667,39 @@ class MeterActivity : AppCompatActivity() {
                     if (isAlarmActive) {
                         stopAlarm()
                     }
+                    showLowBatteryNotification(0)
                     bannerWarn.text = "⚠️ BATTERY EMPTY: 0% - Connect Charger Immediately!"
                     bannerWarn.setBackgroundColor(Color.parseColor("#991B1B"))
                     bannerWarn.visibility = View.VISIBLE
-                    isLowBatteryAlarm = false // This is not the low battery alarm
                 }
             }
+            
+            // Check for high temperature
+            if (currentTemp > ALARM_TEMP_THRESHOLD) {
+                // Show high temperature notification
+                showHighTemperatureNotification(currentTemp)
+                
+                // Update temperature display to show warning
+                tvTemp.setTextColor(Color.RED)
+                thermometerView.setTemperature(currentTemp)
+                
+                // Show warning in banner if not already showing battery warning
+                if (currentSOC > ALARM_SOC_THRESHOLD) {
+                    bannerWarn.text = "🌡️ HIGH TEMP: ${String.format("%.1f", currentTemp)}°C - Check Cooling!"
+                    bannerWarn.setBackgroundColor(Color.parseColor("#F59E0B"))
+                    bannerWarn.visibility = View.VISIBLE
+                }
+            } else {
+                // Temperature is normal, dismiss notification and reset color
+                dismissHighTemperatureNotification()
+                tvTemp.setTextColor(Color.WHITE)
+                
+                // Hide banner if it was showing temperature warning only
+                if (currentSOC > ALARM_SOC_THRESHOLD) {
+                    bannerWarn.visibility = View.GONE
+                }
+            }
+            
             lastSocAlarmState = currentSOC
         }
     }
@@ -583,8 +708,12 @@ class MeterActivity : AppCompatActivity() {
         runOnUiThread {
             stopAlarm()
             bannerWarn.visibility = View.GONE
+            
+            // Dismiss all notifications
+            dismissLowBatteryNotification()
+            dismissHighTemperatureNotification()
+            
             isAlarmActive = false
-            isLowBatteryAlarm = false
         }
     }
 
@@ -1037,35 +1166,22 @@ class MeterActivity : AppCompatActivity() {
     }
 
     private fun updateWarningBanner() {
-        // Don't update if it's showing low battery alarm
-        if (isLowBatteryAlarm) {
-            return
-        }
-        
         val btOn = bluetoothAdapter?.isEnabled == true
         val locOn = isLocationEnabled(this)
         when {
             !btOn && !locOn -> { 
                 bannerWarn.text = "Bluetooth and Location are OFF - Tap to enable"
                 bannerWarn.visibility = View.VISIBLE 
-                isLowBatteryAlarm = false
             }
             !btOn -> { 
                 bannerWarn.text = "Bluetooth is OFF - Tap to enable"
                 bannerWarn.visibility = View.VISIBLE 
-                isLowBatteryAlarm = false
             }
             !locOn -> { 
                 bannerWarn.text = "Location is OFF - Tap to enable"
                 bannerWarn.visibility = View.VISIBLE 
-                isLowBatteryAlarm = false
             }
-            else -> {
-                // Only hide if not showing low battery alarm
-                if (!isLowBatteryAlarm) {
-                    bannerWarn.visibility = View.GONE
-                }
-            }
+            else -> bannerWarn.visibility = View.GONE
         }
     }
 
@@ -1083,10 +1199,20 @@ class MeterActivity : AppCompatActivity() {
         } else {
             if (!has(Manifest.permission.ACCESS_FINE_LOCATION)) need += Manifest.permission.ACCESS_FINE_LOCATION
         }
+        
+        // Add notification permission for Android 13 (API 33) and above
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (!has(Manifest.permission.POST_NOTIFICATIONS)) {
+                need += Manifest.permission.POST_NOTIFICATIONS
+            }
+        }
+        
         return if (need.isEmpty()) true
         else { ActivityCompat.requestPermissions(this, need.toTypedArray(), PERM_REQUEST); false }
     }
+    
     private fun has(p: String) = ContextCompat.checkSelfPermission(this, p) == PackageManager.PERMISSION_GRANTED
+    
     override fun onRequestPermissionsResult(rc: Int, p: Array<out String>, r: IntArray) {
         super.onRequestPermissionsResult(rc, p, r)
         if (rc == PERM_REQUEST && r.all { it == PackageManager.PERMISSION_GRANTED }) startScan()
@@ -1326,9 +1452,6 @@ class MeterActivity : AppCompatActivity() {
         val current = iRaw / 100.0
         val soc = p[19].toInt() and 0xFF
 
-        // Check SOC and trigger alarm if needed
-        checkAndTriggerSOCAlarm(soc)
-
         // Extract cell count from register 0x25 (position 21 in payload)
         val newCellCount = p[21].toInt() and 0xFF
         
@@ -1376,6 +1499,9 @@ class MeterActivity : AppCompatActivity() {
             }      
         }
         
+        // Check SOC and trigger alarm if needed (pass temperature as well)
+        checkAndTriggerSOCAlarm(soc, tempValue)
+        
         runOnUiThread {
             gauge.setPercent(soc.coerceIn(0, 100))
             tvVolt.text = String.format("%.3f", voltage)
@@ -1421,9 +1547,9 @@ class MeterActivity : AppCompatActivity() {
         // Stop alarm before disconnecting
         stopAlarm()
         
-        // Release media player resources
-        mediaPlayer?.release()
-        mediaPlayer = null
+        // Dismiss all notifications
+        dismissLowBatteryNotification()
+        dismissHighTemperatureNotification()
         
         disconnectFromCurrentDevice()
         super.onDestroy()
