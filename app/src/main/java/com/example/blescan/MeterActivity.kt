@@ -73,7 +73,7 @@ class MeterActivity : AppCompatActivity() {
 
     // Alarm thresholds
     private val ALARM_SOC_THRESHOLD = 5
-    private val ALARM_TEMP_THRESHOLD = 25.0
+    private val ALARM_TEMP_THRESHOLD = 65.0
 
     // Notification constants
     private val NOTIFICATION_CHANNEL_ID = "bms_alerts_channel"
