@@ -8,10 +8,14 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.*
 import android.location.LocationManager
+import android.media.MediaPlayer
+import android.media.RingtoneManager
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.VibrationEffect
+import android.os.Vibrator
 import android.provider.Settings
 import android.view.Gravity
 import android.view.View
@@ -66,6 +70,13 @@ class MeterActivity : AppCompatActivity() {
 
     // FET Status
     private var fetStatus = "Unknown"
+
+    // SOC Alarm settings
+    private val ALARM_SOC_THRESHOLD = 26
+    private var isAlarmActive = false
+    private var lastSocAlarmState = 0
+    private var mediaPlayer: MediaPlayer? = null
+    private var vibrator: Vibrator? = null
 
     // Countdown variables
     private var countdownSeconds = 30
@@ -409,6 +420,9 @@ class MeterActivity : AppCompatActivity() {
         bluetoothAdapter = (getSystemService(BLUETOOTH_SERVICE) as BluetoothManager).adapter
         scanner = bluetoothAdapter?.bluetoothLeScanner
 
+        // Initialize vibrator
+        vibrator = getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+
         adapterLv = ArrayAdapter(this, android.R.layout.simple_list_item_1, ArrayList())
         list.adapter = adapterLv
 
@@ -423,6 +437,122 @@ class MeterActivity : AppCompatActivity() {
             val dev = devices[mac] ?: return@setOnItemClickListener
             tvName.text = advertisedName[mac] ?: "Unknown"
             connectTo(dev)
+        }
+    }
+
+    private fun playAlarmSound() {
+        try {
+            if (mediaPlayer == null) {
+                val alarmSound = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
+                if (alarmSound != null) {
+                    mediaPlayer = MediaPlayer.create(this, alarmSound)
+                    mediaPlayer?.isLooping = true
+                } else {
+                    // Fallback to notification sound if alarm sound not available
+                    val notificationSound = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+                    mediaPlayer = MediaPlayer.create(this, notificationSound)
+                    mediaPlayer?.isLooping = true
+                }
+            }
+            
+            if (mediaPlayer?.isPlaying == false) {
+                mediaPlayer?.start()
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            // Fallback to system beep
+            try {
+                mediaPlayer = MediaPlayer.create(this, android.provider.Settings.System.DEFAULT_NOTIFICATION_URI)
+                mediaPlayer?.isLooping = true
+                mediaPlayer?.start()
+            } catch (ex: Exception) {
+                ex.printStackTrace()
+            }
+        }
+    }
+
+    private fun startVibration() {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                // For Android 8.0 (Oreo) and above
+                val effect = VibrationEffect.createWaveform(
+                    longArrayOf(500, 500),  // Vibration pattern: vibrate for 500ms, pause for 500ms
+                    0  // Repeat from the beginning
+                )
+                vibrator?.vibrate(effect)
+            } else {
+                // For older Android versions
+                vibrator?.vibrate(longArrayOf(500, 500), 0)
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    private fun stopAlarm() {
+        try {
+            mediaPlayer?.let {
+                if (it.isPlaying) {
+                    it.pause()
+                    it.seekTo(0)
+                }
+            }
+            
+            vibrator?.cancel()
+            isAlarmActive = false
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    private fun checkAndTriggerSOCAlarm(currentSOC: Int) {
+        runOnUiThread {
+            when {
+                currentSOC <= ALARM_SOC_THRESHOLD && currentSOC > 0 -> {
+                    if (!isAlarmActive) {
+                        // SOC just dropped below threshold
+                        isAlarmActive = true
+                        playAlarmSound()
+                        startVibration()
+                        
+                        // Show a warning toast
+                        toast("⚠️ LOW BATTERY WARNING: SOC is $currentSOC%")
+                        
+                        // Optionally change gauge color to red when alarm is active
+                        gauge.setPercent(currentSOC)
+                        
+                        // You could also flash a warning banner
+                        bannerWarn.text = "⚠️ LOW BATTERY: $currentSOC% - Connect Charger!"
+                        bannerWarn.setBackgroundColor(Color.parseColor("#DC2626"))
+                        bannerWarn.visibility = View.VISIBLE
+                    }
+                }
+                currentSOC > ALARM_SOC_THRESHOLD -> {
+                    if (isAlarmActive) {
+                        // SOC has risen above threshold, stop alarm
+                        stopAlarm()
+                        bannerWarn.visibility = View.GONE
+                    }
+                }
+                currentSOC == 0 -> {
+                    // Battery is empty, stop alarm if it's running
+                    if (isAlarmActive) {
+                        stopAlarm()
+                    }
+                    bannerWarn.text = "⚠️ BATTERY EMPTY: 0% - Connect Charger Immediately!"
+                    bannerWarn.setBackgroundColor(Color.parseColor("#991B1B"))
+                    bannerWarn.visibility = View.VISIBLE
+                }
+            }
+            lastSocAlarmState = currentSOC
+        }
+    }
+
+    private fun clearAlarmOnDisconnect() {
+        runOnUiThread {
+            stopAlarm()
+            bannerWarn.visibility = View.GONE
+            isAlarmActive = false
         }
     }
 
@@ -468,28 +598,10 @@ class MeterActivity : AppCompatActivity() {
         val packUndervoltageRelease = (TEMP_CELL_UNDERVOLTAGE_RELEASE * cellCount * 100).toInt()
         val defaultPackUndervoltage = (DEFAULT_CELL_UNDERVOLTAGE * cellCount * 100).toInt()
         val defaultPackUndervoltageRelease = (DEFAULT_CELL_UNDERVOLTAGE_RELEASE * cellCount * 100).toInt()
-/*
-        val infoText = TextView(this).apply {
-            text = "Detected: ${cellCount}S Configuration\n\n" +
-                    "Initial Settings (30 seconds):\n" +
-                    "• Cell Low Voltage Cutoff: ${TEMP_CELL_UNDERVOLTAGE}V\n" +
-                    "• Cell Low Voltage Release: ${TEMP_CELL_UNDERVOLTAGE_RELEASE}V\n" +
-                    "• Pack Low Voltage Cutoff: ${packUndervoltage / 100.0}V\n" +
-                    "• Pack Low Voltage Release: ${packUndervoltageRelease / 100.0}V\n\n" +
-                    "After 30 seconds, settings will revert to:\n" +
-                    "• Cell: ${DEFAULT_CELL_UNDERVOLTAGE}V / ${DEFAULT_CELL_UNDERVOLTAGE_RELEASE}V\n" +
-                    "• Pack: ${defaultPackUndervoltage / 100.0}V / ${defaultPackUndervoltageRelease / 100.0}V\n\n" +
-                    "Both FETs will be turned ON after completion!"
-            textSize = 14f
-            setTextColor(Color.DKGRAY)
-            setPadding(0, 16, 0, 16)
-        }
-        dialogView.addView(infoText)
-*/
+
         val alertDialog = AlertDialog.Builder(this)
             .setView(dialogView)
             .setPositiveButton("Accept & Start") { dialog, _ ->
-                //startCountdown()
                 writeCellVoltageSettings()
                 dialog.dismiss()
             }
@@ -976,6 +1088,9 @@ class MeterActivity : AppCompatActivity() {
         tvFetStatus.text = "Charge: - | Discharge: -"
         thermometerView.setTemperature(0.0)
         countdownCard.visibility = View.GONE
+        
+        // Clear any active alarm
+        clearAlarmOnDisconnect()
 
         scanning = true
         toast("Scanning for ${SCAN_MS/1000}s...")
@@ -1037,6 +1152,9 @@ class MeterActivity : AppCompatActivity() {
         cellCount = 0
         fetStatus = "Charge: - | Discharge: -"
         
+        // Clear alarm
+        clearAlarmOnDisconnect()
+        
         // Stop countdown
         countdownRunning = false
         countdownHandler.removeCallbacks(countdownRunnable)
@@ -1064,6 +1182,9 @@ class MeterActivity : AppCompatActivity() {
                 rxBuffer.clear()
                 cellCount = 0
                 fetStatus = "Charge: - | Discharge: -"
+                
+                // Clear alarm on disconnect
+                clearAlarmOnDisconnect()
                 
                 // Stop countdown
                 countdownRunning = false
@@ -1160,6 +1281,9 @@ class MeterActivity : AppCompatActivity() {
         val current = iRaw / 100.0
         val soc = p[19].toInt() and 0xFF
 
+        // Check SOC and trigger alarm if needed
+        checkAndTriggerSOCAlarm(soc)
+
         // Extract cell count from register 0x25 (position 21 in payload)
         val newCellCount = p[21].toInt() and 0xFF
         
@@ -1188,24 +1312,25 @@ class MeterActivity : AppCompatActivity() {
         var tempValue2 = 0.0
         var tempValue3 = 0.0
         
-        
-    
-        val tRaw1 = ((p[23].toInt() and 0xFF) shl 8) or (p[24].toInt() and 0xFF)
-        tempValue1 = (tRaw1 - 2731) / 10.0
-        tempValue = tempValue1
-        val tRaw2 = ((p[25].toInt() and 0xFF) shl 8) or (p[26].toInt() and 0xFF)
-        tempValue2 = (tRaw2 - 2731) / 10.0
-        if (tempValue2 > tempValue) {
-            tempValue = tempValue2
+        if (p.size >= 29) {
+            val tRaw1 = ((p[23].toInt() and 0xFF) shl 8) or (p[24].toInt() and 0xFF)
+            tempValue1 = (tRaw1 - 2731) / 10.0
+            tempValue = tempValue1
+            val tRaw2 = ((p[25].toInt() and 0xFF) shl 8) or (p[26].toInt() and 0xFF)
+            tempValue2 = (tRaw2 - 2731) / 10.0
+            if (tempValue2 > tempValue) {
+                tempValue = tempValue2
             }
-        val tRaw3 = ((p[27].toInt() and 0xFF) shl 8) or (p[28].toInt() and 0xFF)
-        tempValue3 = (tRaw3 - 2731) / 10.0
-        if (tempValue3 > tempValue) {
-            tempValue = tempValue3
+            val tRaw3 = ((p[27].toInt() and 0xFF) shl 8) or (p[28].toInt() and 0xFF)
+            tempValue3 = (tRaw3 - 2731) / 10.0
+            if (tempValue3 > tempValue) {
+                tempValue = tempValue3
             }
-        if (!tempValue.isNaN() && tempValue > -100 && tempValue < 200) {
-            tempText = String.format("%.1f", tempValue)
+            if (!tempValue.isNaN() && tempValue > -100 && tempValue < 200) {
+                tempText = String.format("%.1f", tempValue)
             }      
+        }
+        
         runOnUiThread {
             gauge.setPercent(soc.coerceIn(0, 100))
             tvVolt.text = String.format("%.3f", voltage)
@@ -1242,10 +1367,15 @@ class MeterActivity : AppCompatActivity() {
         else -> "$s"
     }
     private fun toast(msg: String) = Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
+    
     override fun onDestroy() {
         stopScan()
         handler.removeCallbacks(pollTask)
         countdownHandler.removeCallbacks(countdownRunnable)
+        
+        // Stop alarm before disconnecting
+        stopAlarm()
+        
         disconnectFromCurrentDevice()
         super.onDestroy()
     }
