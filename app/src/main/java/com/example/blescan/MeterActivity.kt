@@ -138,7 +138,7 @@ class MeterActivity : AppCompatActivity() {
     // --- UI ---
     private lateinit var bannerWarn: TextView
     private lateinit var btnScan: Button
-    private init var list: ListView
+    private lateinit var list: ListView
     private lateinit var gauge: ModernHalfGauge
 
     private lateinit var tvVolt: TextView
