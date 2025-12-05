@@ -6,8 +6,10 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.bluetooth.*
 import android.bluetooth.le.*
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.graphics.*
 import android.location.LocationManager
@@ -78,7 +80,8 @@ class MeterActivity : AppCompatActivity() {
     private val NOTIFICATION_CHANNEL_NAME = "BMS Alerts"
     private val NOTIFICATION_ID_LOW_BATTERY = 1001
     private val NOTIFICATION_ID_HIGH_TEMP = 1002
-    private val NOTIFICATION_ACTION_SILENCE = "SILENCE_ALARM"
+    private val ACTION_SILENCE_ALARM = "com.example.blescan.ACTION_SILENCE_ALARM"
+    private val EXTRA_ALARM_TYPE = "alarm_type"
     
     // Cell count management
     private var cellCount = 0
@@ -94,6 +97,7 @@ class MeterActivity : AppCompatActivity() {
     private var mediaPlayer: MediaPlayer? = null
     private var vibrator: Vibrator? = null
     private var notificationManager: NotificationManager? = null
+    private lateinit var alarmSilenceReceiver: AlarmSilenceReceiver
 
     // Countdown variables
     private var countdownSeconds = 30
@@ -191,12 +195,13 @@ class MeterActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Handle notification silence action
-        if (intent.action == NOTIFICATION_ACTION_SILENCE) {
-            val alarmType = intent.getStringExtra("alarm_type")
-            if (alarmType != null) {
-                silenceAlarm(alarmType)
-            }
+        // Create and register the alarm silence receiver
+        alarmSilenceReceiver = AlarmSilenceReceiver()
+        val filter = IntentFilter(ACTION_SILENCE_ALARM)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            registerReceiver(alarmSilenceReceiver, filter, RECEIVER_EXPORTED)
+        } else {
+            registerReceiver(alarmSilenceReceiver, filter)
         }
 
         val logo = ImageView(this).apply {
@@ -498,15 +503,13 @@ class MeterActivity : AppCompatActivity() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        // Create silence action intent
-        val silenceIntent = Intent(this, MeterActivity::class.java).apply {
-            action = NOTIFICATION_ACTION_SILENCE
-            putExtra("alarm_type", "low_battery")
-            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP
+        // Create silence action intent using BroadcastReceiver
+        val silenceIntent = Intent(ACTION_SILENCE_ALARM).apply {
+            putExtra(EXTRA_ALARM_TYPE, "low_battery")
         }
-        val silencePendingIntent = PendingIntent.getActivity(
+        val silencePendingIntent = PendingIntent.getBroadcast(
             this,
-            3,
+            100,
             silenceIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
@@ -545,15 +548,13 @@ class MeterActivity : AppCompatActivity() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        // Create silence action intent
-        val silenceIntent = Intent(this, MeterActivity::class.java).apply {
-            action = NOTIFICATION_ACTION_SILENCE
-            putExtra("alarm_type", "high_temp")
-            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP
+        // Create silence action intent using BroadcastReceiver
+        val silenceIntent = Intent(ACTION_SILENCE_ALARM).apply {
+            putExtra(EXTRA_ALARM_TYPE, "high_temp")
         }
-        val silencePendingIntent = PendingIntent.getActivity(
+        val silencePendingIntent = PendingIntent.getBroadcast(
             this,
-            4,
+            101,
             silenceIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
@@ -587,7 +588,7 @@ class MeterActivity : AppCompatActivity() {
         }
         val pendingIntent = PendingIntent.getActivity(
             this,
-            notificationId + 100,
+            notificationId + 1000,
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
@@ -621,7 +622,7 @@ class MeterActivity : AppCompatActivity() {
         isHighTempSilenced = false
     }
 
-    private fun silenceAlarm(alarmType: String) {
+    fun silenceAlarm(alarmType: String) {
         runOnUiThread {
             // Stop the sound and vibration
             stopAlarm()
@@ -1232,6 +1233,29 @@ class MeterActivity : AppCompatActivity() {
         }, 300)
     }
 
+    override fun onDestroy() {
+        super.onDestroy()
+        // Unregister the receiver
+        try {
+            unregisterReceiver(alarmSilenceReceiver)
+        } catch (e: IllegalArgumentException) {
+            // Receiver was not registered, ignore
+        }
+        
+        stopScan()
+        handler.removeCallbacks(pollTask)
+        countdownHandler.removeCallbacks(countdownRunnable)
+        
+        // Stop alarm before disconnecting
+        stopAlarm()
+        
+        // Dismiss all notifications
+        dismissLowBatteryNotification()
+        dismissHighTemperatureNotification()
+        
+        disconnectFromCurrentDevice()
+    }
+
     private fun ensurePrereqs(): Boolean {
         val btOn = bluetoothAdapter?.isEnabled == true
         val locOn = isLocationEnabled(this)
@@ -1660,21 +1684,17 @@ class MeterActivity : AppCompatActivity() {
         else -> "$s"
     }
     private fun toast(msg: String) = Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
-    
-    override fun onDestroy() {
-        stopScan()
-        handler.removeCallbacks(pollTask)
-        countdownHandler.removeCallbacks(countdownRunnable)
-        
-        // Stop alarm before disconnecting
-        stopAlarm()
-        
-        // Dismiss all notifications
-        dismissLowBatteryNotification()
-        dismissHighTemperatureNotification()
-        
-        disconnectFromCurrentDevice()
-        super.onDestroy()
+
+    // Inner BroadcastReceiver class
+    inner class AlarmSilenceReceiver : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            if (intent.action == ACTION_SILENCE_ALARM) {
+                val alarmType = intent.getStringExtra(EXTRA_ALARM_TYPE)
+                if (alarmType != null) {
+                    silenceAlarm(alarmType)
+                }
+            }
+        }
     }
 
     class ThermometerView(context: Context) : View(context) {
