@@ -8,6 +8,7 @@ import android.bluetooth.*
 import android.bluetooth.le.*
 import android.content.Context
 import android.content.Intent
+import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.graphics.*
 import android.location.LocationManager
@@ -69,8 +70,8 @@ class MeterActivity : AppCompatActivity() {
     private val TEMP_CELL_UNDERVOLTAGE = 2.0f
     private val TEMP_CELL_UNDERVOLTAGE_RELEASE = 2.1f
 
-    // Alarm thresholds
-    private val ALARM_SOC_THRESHOLD = 5
+    // Alarm thresholds - CHANGED: SOC alarm at 5% or below
+    private val ALARM_SOC_THRESHOLD = 5  // Changed from 26 to 5
     private val ALARM_TEMP_THRESHOLD = 65.0
 
     // Notification constants
@@ -78,6 +79,19 @@ class MeterActivity : AppCompatActivity() {
     private val NOTIFICATION_CHANNEL_NAME = "BMS Alerts"
     private val NOTIFICATION_ID_LOW_BATTERY = 1001
     private val NOTIFICATION_ID_HIGH_TEMP = 1002
+    private val NOTIFICATION_ID_BATTERY_EMPTY = 1003
+    private val NOTIFICATION_ID_CRITICAL_BATTERY = 1004  // For 1-5% battery
+    
+    // Alarm state tracking
+    private val PREFS_NAME = "alarm_state"
+    private val PREF_SOC_ALARM_DISMISSED = "soc_alarm_dismissed"
+    private val PREF_TEMP_ALARM_DISMISSED = "temp_alarm_dismissed"
+    private val PREF_BATTERY_EMPTY_DISMISSED = "battery_empty_dismissed"
+    private val PREF_CRITICAL_BATTERY_DISMISSED = "critical_battery_dismissed"
+    private val PREF_LAST_SOC_ABOVE_THRESHOLD = "last_soc_above_threshold"
+    private val PREF_LAST_TEMP_BELOW_THRESHOLD = "last_temp_below_threshold"
+    private val PREF_LAST_BATTERY_NOT_EMPTY = "last_battery_not_empty"
+    private val PREF_LAST_BATTERY_ABOVE_CRITICAL = "last_battery_above_critical"
     
     // Cell count management
     private var cellCount = 0
@@ -87,12 +101,10 @@ class MeterActivity : AppCompatActivity() {
 
     // SOC Alarm settings
     private var isAlarmActive = false
-    private var isSoundEnabled = true
-    private var isVibrationEnabled = true
-    private var lastSocAlarmState = 0
     private var mediaPlayer: MediaPlayer? = null
     private var vibrator: Vibrator? = null
     private var notificationManager: NotificationManager? = null
+    private lateinit var sharedPreferences: SharedPreferences
 
     // Countdown variables
     private var countdownSeconds = 30
@@ -189,6 +201,9 @@ class MeterActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // Initialize shared preferences for alarm state tracking
+        sharedPreferences = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
         val logo = ImageView(this).apply {
             try { setImageResource(R.drawable.logo) } catch (_: Exception) {}
@@ -443,10 +458,6 @@ class MeterActivity : AppCompatActivity() {
         notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         createNotificationChannel()
 
-        // Initialize with sound and vibration enabled by default
-        isSoundEnabled = true
-        isVibrationEnabled = true
-
         adapterLv = ArrayAdapter(this, android.R.layout.simple_list_item_1, ArrayList())
         list.adapter = adapterLv
 
@@ -482,7 +493,50 @@ class MeterActivity : AppCompatActivity() {
         }
     }
 
+    private fun showCriticalBatteryNotification(soc: Int) {
+        val intent = Intent(this, MeterActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+            putExtra("action", "silence_alarm")
+            putExtra("alarm_type", "critical_battery")
+        }
+        val pendingIntent = PendingIntent.getActivity(
+            this,
+            0,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val notification = NotificationCompat.Builder(this, NOTIFICATION_CHANNEL_ID)
+            .setSmallIcon(android.R.drawable.ic_dialog_alert)
+            .setContentTitle("🔴 CRITICAL BATTERY!")
+            .setContentText("Battery is at $soc% - Connect charger URGENTLY!")
+            .setPriority(NotificationCompat.PRIORITY_MAX)
+            .setCategory(NotificationCompat.CATEGORY_ALARM)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setContentIntent(pendingIntent)
+            .setAutoCancel(false)
+            .setOngoing(true)
+            .setColor(ContextCompat.getColor(this, android.R.color.holo_red_dark))
+            .setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM))
+            .setVibrate(longArrayOf(0, 1000, 250, 1000, 250, 1000))
+            .addAction(
+                android.R.drawable.ic_menu_close_clear_cancel,
+                "Disable Sound/Vibration",
+                getSilenceActionPendingIntent("critical_battery")
+            )
+            .addAction(
+                android.R.drawable.ic_delete,
+                "Dismiss",
+                getDismissActionPendingIntent(NOTIFICATION_ID_CRITICAL_BATTERY, "critical_battery")
+            )
+            .build()
+
+        notificationManager?.notify(NOTIFICATION_ID_CRITICAL_BATTERY, notification)
+    }
+
     private fun showLowBatteryNotification(soc: Int) {
+        // This is now for battery levels 6-26% (if you want to keep that functionality)
+        // Or you can remove this function if you only want critical (5% or below) and empty (0%)
         val intent = Intent(this, MeterActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
             putExtra("action", "silence_alarm")
@@ -497,15 +551,17 @@ class MeterActivity : AppCompatActivity() {
 
         val notification = NotificationCompat.Builder(this, NOTIFICATION_CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_dialog_alert)
-            .setContentTitle("⚠️ Low Battery Alert")
-            .setContentText("Battery SOC is $soc% - Connect charger immediately!")
+            .setContentTitle("⚠️ Low Battery")
+            .setContentText("Battery SOC is $soc% - Connect charger soon!")
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setCategory(NotificationCompat.CATEGORY_ALARM)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setContentIntent(pendingIntent)
             .setAutoCancel(false)
             .setOngoing(true)
-            .setColor(ContextCompat.getColor(this, android.R.color.holo_red_dark))
+            .setColor(ContextCompat.getColor(this, android.R.color.holo_orange_dark))
+            .setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM))
+            .setVibrate(longArrayOf(0, 500, 250, 500))
             .addAction(
                 android.R.drawable.ic_menu_close_clear_cancel,
                 "Disable Sound/Vibration",
@@ -514,20 +570,11 @@ class MeterActivity : AppCompatActivity() {
             .addAction(
                 android.R.drawable.ic_delete,
                 "Dismiss",
-                getDismissActionPendingIntent(NOTIFICATION_ID_LOW_BATTERY)
+                getDismissActionPendingIntent(NOTIFICATION_ID_LOW_BATTERY, "low_battery")
             )
+            .build()
 
-        // Add sound if enabled
-        if (isSoundEnabled) {
-            notification.setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM))
-        }
-
-        // Add vibration if enabled
-        if (isVibrationEnabled) {
-            notification.setVibrate(longArrayOf(0, 500, 250, 500))
-        }
-
-        notificationManager?.notify(NOTIFICATION_ID_LOW_BATTERY, notification.build())
+        notificationManager?.notify(NOTIFICATION_ID_LOW_BATTERY, notification)
     }
 
     private fun showHighTemperatureNotification(temperature: Double) {
@@ -554,6 +601,8 @@ class MeterActivity : AppCompatActivity() {
             .setAutoCancel(false)
             .setOngoing(true)
             .setColor(ContextCompat.getColor(this, android.R.color.holo_orange_dark))
+            .setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM))
+            .setVibrate(longArrayOf(0, 500, 250, 500))
             .addAction(
                 android.R.drawable.ic_menu_close_clear_cancel,
                 "Disable Sound/Vibration",
@@ -562,20 +611,52 @@ class MeterActivity : AppCompatActivity() {
             .addAction(
                 android.R.drawable.ic_delete,
                 "Dismiss",
-                getDismissActionPendingIntent(NOTIFICATION_ID_HIGH_TEMP)
+                getDismissActionPendingIntent(NOTIFICATION_ID_HIGH_TEMP, "high_temp")
             )
+            .build()
 
-        // Add sound if enabled
-        if (isSoundEnabled) {
-            notification.setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM))
+        notificationManager?.notify(NOTIFICATION_ID_HIGH_TEMP, notification)
+    }
+
+    private fun showBatteryEmptyNotification() {
+        val intent = Intent(this, MeterActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+            putExtra("action", "silence_alarm")
+            putExtra("alarm_type", "battery_empty")
         }
+        val pendingIntent = PendingIntent.getActivity(
+            this,
+            0,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
 
-        // Add vibration if enabled
-        if (isVibrationEnabled) {
-            notification.setVibrate(longArrayOf(0, 500, 250, 500))
-        }
+        val notification = NotificationCompat.Builder(this, NOTIFICATION_CHANNEL_ID)
+            .setSmallIcon(android.R.drawable.ic_dialog_alert)
+            .setContentTitle("🔋 BATTERY EMPTY!")
+            .setContentText("Battery is at 0% - Connect charger IMMEDIATELY!")
+            .setPriority(NotificationCompat.PRIORITY_MAX)
+            .setCategory(NotificationCompat.CATEGORY_ALARM)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setContentIntent(pendingIntent)
+            .setAutoCancel(false)
+            .setOngoing(true)
+            .setColor(ContextCompat.getColor(this, android.R.color.holo_red_dark))
+            .setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM))
+            .setVibrate(longArrayOf(0, 1000, 250, 1000, 250, 1000))
+            .addAction(
+                android.R.drawable.ic_menu_close_clear_cancel,
+                "Disable Sound/Vibration",
+                getSilenceActionPendingIntent("battery_empty")
+            )
+            .addAction(
+                android.R.drawable.ic_delete,
+                "Dismiss",
+                getDismissActionPendingIntent(NOTIFICATION_ID_BATTERY_EMPTY, "battery_empty")
+            )
+            .build()
 
-        notificationManager?.notify(NOTIFICATION_ID_HIGH_TEMP, notification.build())
+        notificationManager?.notify(NOTIFICATION_ID_BATTERY_EMPTY, notification)
     }
 
     private fun getSilenceActionPendingIntent(alarmType: String): PendingIntent {
@@ -591,10 +672,11 @@ class MeterActivity : AppCompatActivity() {
         )
     }
 
-    private fun getDismissActionPendingIntent(notificationId: Int): PendingIntent {
+    private fun getDismissActionPendingIntent(notificationId: Int, alarmType: String): PendingIntent {
         val intent = Intent(this, AlarmActionReceiver::class.java).apply {
             action = "DISMISS_NOTIFICATION"
             putExtra("notification_id", notificationId)
+            putExtra("alarm_type", alarmType)
         }
         return PendingIntent.getBroadcast(
             this,
@@ -602,6 +684,10 @@ class MeterActivity : AppCompatActivity() {
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
+    }
+
+    private fun dismissCriticalBatteryNotification() {
+        notificationManager?.cancel(NOTIFICATION_ID_CRITICAL_BATTERY)
     }
 
     private fun dismissLowBatteryNotification() {
@@ -612,9 +698,11 @@ class MeterActivity : AppCompatActivity() {
         notificationManager?.cancel(NOTIFICATION_ID_HIGH_TEMP)
     }
 
+    private fun dismissBatteryEmptyNotification() {
+        notificationManager?.cancel(NOTIFICATION_ID_BATTERY_EMPTY)
+    }
+
     private fun playAlarmSound() {
-        if (!isSoundEnabled) return
-        
         try {
             if (mediaPlayer == null) {
                 // Try to load custom "low battery" sound from raw folder
@@ -662,8 +750,6 @@ class MeterActivity : AppCompatActivity() {
     }
 
     private fun startVibration() {
-        if (!isVibrationEnabled) return
-        
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 // For Android 8.0 (Oreo) and above
@@ -675,6 +761,24 @@ class MeterActivity : AppCompatActivity() {
             } else {
                 // For older Android versions
                 vibrator?.vibrate(longArrayOf(500, 500), 0)
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    private fun startCriticalVibration() {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                // Stronger vibration pattern for critical battery
+                val effect = VibrationEffect.createWaveform(
+                    longArrayOf(0, 1000, 250, 1000, 250, 1000),  // Stronger pattern
+                    0  // Repeat from the beginning
+                )
+                vibrator?.vibrate(effect)
+            } else {
+                // For older Android versions
+                vibrator?.vibrate(longArrayOf(0, 1000, 250, 1000, 250, 1000), 0)
             }
         } catch (e: Exception) {
             e.printStackTrace()
@@ -703,7 +807,21 @@ class MeterActivity : AppCompatActivity() {
             
             // Update notification to show it's silenced
             when (alarmType) {
+                "critical_battery" -> {
+                    // Mark as dismissed so it won't make sound/vibration again
+                    sharedPreferences.edit().putBoolean(PREF_CRITICAL_BATTERY_DISMISSED, true).apply()
+                    
+                    // Update critical battery notification to show silenced state
+                    showSilencedNotification(
+                        NOTIFICATION_ID_CRITICAL_BATTERY,
+                        "🔇 Critical Battery (Silenced)",
+                        "Battery is critical - Sound/Vibration disabled"
+                    )
+                }
                 "low_battery" -> {
+                    // Mark as dismissed so it won't make sound/vibration again
+                    sharedPreferences.edit().putBoolean(PREF_SOC_ALARM_DISMISSED, true).apply()
+                    
                     // Update low battery notification to show silenced state
                     showSilencedNotification(
                         NOTIFICATION_ID_LOW_BATTERY,
@@ -712,6 +830,9 @@ class MeterActivity : AppCompatActivity() {
                     )
                 }
                 "high_temp" -> {
+                    // Mark as dismissed so it won't make sound/vibration again
+                    sharedPreferences.edit().putBoolean(PREF_TEMP_ALARM_DISMISSED, true).apply()
+                    
                     // Update high temperature notification to show silenced state
                     showSilencedNotification(
                         NOTIFICATION_ID_HIGH_TEMP,
@@ -719,22 +840,20 @@ class MeterActivity : AppCompatActivity() {
                         "Temperature is high - Sound/Vibration disabled"
                     )
                 }
-                else -> {
-                    // Update both if no specific type
+                "battery_empty" -> {
+                    // Mark as dismissed so it won't make sound/vibration again
+                    sharedPreferences.edit().putBoolean(PREF_BATTERY_EMPTY_DISMISSED, true).apply()
+                    
+                    // Update battery empty notification to show silenced state
                     showSilencedNotification(
-                        NOTIFICATION_ID_LOW_BATTERY,
-                        "🔇 Low Battery (Silenced)",
-                        "Battery SOC is low - Sound/Vibration disabled"
-                    )
-                    showSilencedNotification(
-                        NOTIFICATION_ID_HIGH_TEMP,
-                        "🔇 High Temp (Silenced)",
-                        "Temperature is high - Sound/Vibration disabled"
+                        NOTIFICATION_ID_BATTERY_EMPTY,
+                        "🔇 Battery Empty (Silenced)",
+                        "Battery is at 0% - Sound/Vibration disabled"
                     )
                 }
             }
             
-            toast("Sound and vibration disabled for alarms")
+            toast("Sound and vibration disabled for this alarm")
         }
     }
 
@@ -760,11 +879,6 @@ class MeterActivity : AppCompatActivity() {
             .setAutoCancel(false)
             .setOngoing(false) // Not ongoing, can be dismissed
             .setColor(ContextCompat.getColor(this, android.R.color.darker_gray))
-            .addAction(
-                android.R.drawable.ic_delete,
-                "Dismiss",
-                getDismissActionPendingIntent(notificationId)
-            )
             .build()
 
         notificationManager?.notify(notificationId, notification)
@@ -772,50 +886,121 @@ class MeterActivity : AppCompatActivity() {
 
     private fun checkAndTriggerSOCAlarm(currentSOC: Int, currentTemp: Double) {
         runOnUiThread {
-            // Check for low battery
-            when {
-                currentSOC <= ALARM_SOC_THRESHOLD && currentSOC > 0 -> {
+            // Check if conditions have cleared
+            val lastSocAboveCritical = sharedPreferences.getBoolean(PREF_LAST_BATTERY_ABOVE_CRITICAL, true)
+            val lastTempBelowThreshold = sharedPreferences.getBoolean(PREF_LAST_TEMP_BELOW_THRESHOLD, true)
+            val lastBatteryNotEmpty = sharedPreferences.getBoolean(PREF_LAST_BATTERY_NOT_EMPTY, true)
+            
+            // Check for CRITICAL battery (1-5%) - CHANGED: Now triggers at 5% or below
+            if (currentSOC in 1..ALARM_SOC_THRESHOLD) {
+                // Check if we need to reset the dismissal state (battery was above critical before)
+                if (lastSocAboveCritical) {
+                    // Battery just dropped to critical level, reset dismissal state
+                    sharedPreferences.edit().putBoolean(PREF_CRITICAL_BATTERY_DISMISSED, false).apply()
+                }
+                
+                // Mark that battery is now at critical level
+                sharedPreferences.edit().putBoolean(PREF_LAST_BATTERY_ABOVE_CRITICAL, false).apply()
+                
+                // Check if critical alarm was dismissed for this session
+                val isCriticalBatteryDismissed = sharedPreferences.getBoolean(PREF_CRITICAL_BATTERY_DISMISSED, false)
+                
+                if (!isCriticalBatteryDismissed) {
+                    // Show CRITICAL battery notification with strong sound/vibration
+                    showCriticalBatteryNotification(currentSOC)
+                    bannerWarn.text = "🔴 CRITICAL BATTERY: $currentSOC% - Connect Charger URGENTLY!"
+                    bannerWarn.setBackgroundColor(Color.parseColor("#DC2626"))
+                    bannerWarn.visibility = View.VISIBLE
+                    
                     if (!isAlarmActive) {
-                        // SOC just dropped below threshold
                         isAlarmActive = true
                         playAlarmSound()
-                        startVibration()
-                        
-                        // Show a warning toast
-                        toast("⚠️ LOW BATTERY WARNING: SOC is $currentSOC%")
-                        
-                        // Show notification
-                        showLowBatteryNotification(currentSOC)
-                        
-                        // Update UI
-                        bannerWarn.text = "⚠️ LOW BATTERY: $currentSOC% - Connect Charger!"
-                        bannerWarn.setBackgroundColor(Color.parseColor("#DC2626"))
-                        bannerWarn.visibility = View.VISIBLE
+                        startCriticalVibration()
+                        toast("🔴 CRITICAL BATTERY: $currentSOC% - Connect NOW!")
                     }
-                }
-                currentSOC > ALARM_SOC_THRESHOLD -> {
-                    if (isAlarmActive) {
-                        // SOC has risen above threshold, stop alarm
-                        stopAlarm()
-                        dismissLowBatteryNotification()
-                        bannerWarn.visibility = View.GONE
-                    }
-                }
-                currentSOC == 0 -> {
-                    // Battery is empty, stop alarm if it's running
-                    if (isAlarmActive) {
-                        stopAlarm()
-                    }
-                    showLowBatteryNotification(0)
-                    bannerWarn.text = "⚠️ BATTERY EMPTY: 0% - Connect Charger Immediately!"
-                    bannerWarn.setBackgroundColor(Color.parseColor("#991B1B"))
+                } else {
+                    // Alarm was dismissed, show silent notification
+                    showSilencedNotification(
+                        NOTIFICATION_ID_CRITICAL_BATTERY,
+                        "🔇 Critical Battery (Silenced)",
+                        "Battery is at $currentSOC% - Sound/Vibration disabled"
+                    )
+                    bannerWarn.text = "🔇 CRITICAL BATTERY: $currentSOC% (Silenced)"
+                    bannerWarn.setBackgroundColor(Color.parseColor("#666666"))
                     bannerWarn.visibility = View.VISIBLE
                 }
+            } else if (currentSOC > ALARM_SOC_THRESHOLD) {
+                // Battery is above critical level
+                sharedPreferences.edit().putBoolean(PREF_LAST_BATTERY_ABOVE_CRITICAL, true).apply()
+                
+                // Dismiss critical battery notification if shown
+                dismissCriticalBatteryNotification()
+                
+                if (isAlarmActive) {
+                    // Stop alarm
+                    stopAlarm()
+                    bannerWarn.visibility = View.GONE
+                }
+            }
+            
+            // Check for battery empty (0%)
+            if (currentSOC == 0) {
+                // Check if we need to reset the dismissal state (battery was not empty before)
+                if (lastBatteryNotEmpty) {
+                    // Battery just went to 0%, reset dismissal state
+                    sharedPreferences.edit().putBoolean(PREF_BATTERY_EMPTY_DISMISSED, false).apply()
+                }
+                
+                // Mark that battery is now empty
+                sharedPreferences.edit().putBoolean(PREF_LAST_BATTERY_NOT_EMPTY, false).apply()
+                
+                // Check if alarm was dismissed for this session
+                val isBatteryEmptyDismissed = sharedPreferences.getBoolean(PREF_BATTERY_EMPTY_DISMISSED, false)
+                
+                if (!isBatteryEmptyDismissed) {
+                    // Show battery empty notification with strong sound/vibration
+                    showBatteryEmptyNotification()
+                    bannerWarn.text = "🔋 BATTERY EMPTY: 0% - Connect Charger IMMEDIATELY!"
+                    bannerWarn.setBackgroundColor(Color.parseColor("#991B1B"))
+                    bannerWarn.visibility = View.VISIBLE
+                    
+                    if (!isAlarmActive) {
+                        isAlarmActive = true
+                        playAlarmSound()
+                        startCriticalVibration()
+                        toast("🔋 BATTERY EMPTY: 0% - Connect IMMEDIATELY!")
+                    }
+                } else {
+                    // Alarm was dismissed, show silent notification
+                    showSilencedNotification(
+                        NOTIFICATION_ID_BATTERY_EMPTY,
+                        "🔇 Battery Empty (Silenced)",
+                        "Battery is at 0% - Sound/Vibration disabled"
+                    )
+                    bannerWarn.text = "🔇 BATTERY EMPTY: 0% (Silenced)"
+                    bannerWarn.setBackgroundColor(Color.parseColor("#666666"))
+                    bannerWarn.visibility = View.VISIBLE
+                }
+            } else if (currentSOC > 0) {
+                // Battery is not empty
+                sharedPreferences.edit().putBoolean(PREF_LAST_BATTERY_NOT_EMPTY, true).apply()
             }
             
             // Check for high temperature
             if (currentTemp > ALARM_TEMP_THRESHOLD) {
-                if (!isAlarmActive || lastSocAlarmState > ALARM_SOC_THRESHOLD) {
+                // Check if we need to reset the dismissal state (temp was below threshold before)
+                if (lastTempBelowThreshold) {
+                    // Temp just rose above threshold, reset dismissal state
+                    sharedPreferences.edit().putBoolean(PREF_TEMP_ALARM_DISMISSED, false).apply()
+                }
+                
+                // Mark that temp is now above threshold
+                sharedPreferences.edit().putBoolean(PREF_LAST_TEMP_BELOW_THRESHOLD, false).apply()
+                
+                // Check if alarm was dismissed for this session
+                val isTempAlarmDismissed = sharedPreferences.getBoolean(PREF_TEMP_ALARM_DISMISSED, false)
+                
+                if (!isTempAlarmDismissed) {
                     // Show high temperature notification
                     showHighTemperatureNotification(currentTemp)
                     
@@ -824,24 +1009,47 @@ class MeterActivity : AppCompatActivity() {
                     thermometerView.setTemperature(currentTemp)
                     
                     // Show warning in banner if not already showing battery warning
-                    if (currentSOC > ALARM_SOC_THRESHOLD) {
+                    if (currentSOC > ALARM_SOC_THRESHOLD && currentSOC > 0) {
                         bannerWarn.text = "🌡️ HIGH TEMP: ${String.format("%.1f", currentTemp)}°C - Check Cooling!"
                         bannerWarn.setBackgroundColor(Color.parseColor("#F59E0B"))
                         bannerWarn.visibility = View.VISIBLE
                     }
+                    
+                    if (!isAlarmActive) {
+                        isAlarmActive = true
+                        playAlarmSound()
+                        startVibration()
+                        toast("🌡️ HIGH TEMP: ${String.format("%.1f", currentTemp)}°C")
+                    }
+                } else {
+                    // Alarm was dismissed, show silent notification
+                    showSilencedNotification(
+                        NOTIFICATION_ID_HIGH_TEMP,
+                        "🔇 High Temp (Silenced)",
+                        "Temperature is ${String.format("%.1f", currentTemp)}°C - Sound/Vibration disabled"
+                    )
+                    tvTemp.setTextColor(Color.YELLOW)
+                    
+                    // Show warning in banner if not already showing battery warning
+                    if (currentSOC > ALARM_SOC_THRESHOLD && currentSOC > 0) {
+                        bannerWarn.text = "🔇 HIGH TEMP: ${String.format("%.1f", currentTemp)}°C (Silenced)"
+                        bannerWarn.setBackgroundColor(Color.parseColor("#666666"))
+                        bannerWarn.visibility = View.VISIBLE
+                    }
                 }
             } else {
-                // Temperature is normal, dismiss notification and reset color
+                // Temperature is normal
+                sharedPreferences.edit().putBoolean(PREF_LAST_TEMP_BELOW_THRESHOLD, true).apply()
+                
+                // Dismiss temperature notification and reset color
                 dismissHighTemperatureNotification()
                 tvTemp.setTextColor(Color.WHITE)
                 
                 // Hide banner if it was showing temperature warning only
-                if (currentSOC > ALARM_SOC_THRESHOLD) {
+                if (currentSOC > ALARM_SOC_THRESHOLD && currentSOC > 0) {
                     bannerWarn.visibility = View.GONE
                 }
             }
-            
-            lastSocAlarmState = currentSOC
         }
     }
 
@@ -851,13 +1059,24 @@ class MeterActivity : AppCompatActivity() {
             bannerWarn.visibility = View.GONE
             
             // Dismiss all notifications
+            dismissCriticalBatteryNotification()
             dismissLowBatteryNotification()
             dismissHighTemperatureNotification()
+            dismissBatteryEmptyNotification()
             
             isAlarmActive = false
-            // Reset sound and vibration settings on disconnect
-            isSoundEnabled = true
-            isVibrationEnabled = true
+            
+            // Reset dismissal states on disconnect
+            sharedPreferences.edit()
+                .putBoolean(PREF_CRITICAL_BATTERY_DISMISSED, false)
+                .putBoolean(PREF_SOC_ALARM_DISMISSED, false)
+                .putBoolean(PREF_TEMP_ALARM_DISMISSED, false)
+                .putBoolean(PREF_BATTERY_EMPTY_DISMISSED, false)
+                .putBoolean(PREF_LAST_BATTERY_ABOVE_CRITICAL, true)
+                .putBoolean(PREF_LAST_SOC_ABOVE_THRESHOLD, true)
+                .putBoolean(PREF_LAST_TEMP_BELOW_THRESHOLD, true)
+                .putBoolean(PREF_LAST_BATTERY_NOT_EMPTY, true)
+                .apply()
         }
     }
 
@@ -1703,8 +1922,10 @@ class MeterActivity : AppCompatActivity() {
         stopAlarm()
         
         // Dismiss all notifications
+        dismissCriticalBatteryNotification()
         dismissLowBatteryNotification()
         dismissHighTemperatureNotification()
+        dismissBatteryEmptyNotification()
         
         disconnectFromCurrentDevice()
         super.onDestroy()

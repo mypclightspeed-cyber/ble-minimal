@@ -4,6 +4,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.app.NotificationManager
+import android.content.SharedPreferences
 import android.widget.Toast
 import androidx.core.app.NotificationCompat
 
@@ -14,25 +15,35 @@ class AlarmActionReceiver : BroadcastReceiver() {
         val alarmType = intent.getStringExtra("alarm_type")
         
         val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val prefs = context.getSharedPreferences("alarm_state", Context.MODE_PRIVATE)
         
         when (action) {
             "SILENCE_ALARM" -> {
-                // Store silence preference in shared preferences
-                val prefs = context.getSharedPreferences("alarm_prefs", Context.MODE_PRIVATE)
-                prefs.edit()
-                    .putBoolean("sound_enabled", false)
-                    .putBoolean("vibration_enabled", false)
-                    .apply()
+                // Mark this specific alarm type as dismissed
+                when (alarmType) {
+                    "critical_battery" -> prefs.edit().putBoolean("critical_battery_dismissed", true).apply()
+                    "low_battery" -> prefs.edit().putBoolean("soc_alarm_dismissed", true).apply()
+                    "high_temp" -> prefs.edit().putBoolean("temp_alarm_dismissed", true).apply()
+                    "battery_empty" -> prefs.edit().putBoolean("battery_empty_dismissed", true).apply()
+                }
                 
-                Toast.makeText(context, "Alarm sound and vibration disabled", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, "Alarm sound and vibration disabled for this alert", Toast.LENGTH_SHORT).show()
                 
                 // Update the notification to show it's silenced
                 updateNotificationToSilenced(context, notificationManager, notificationId, alarmType)
             }
             "DISMISS_NOTIFICATION" -> {
-                // Simply dismiss the notification
+                // Mark this specific alarm type as dismissed
+                when (alarmType) {
+                    "critical_battery" -> prefs.edit().putBoolean("critical_battery_dismissed", true).apply()
+                    "low_battery" -> prefs.edit().putBoolean("soc_alarm_dismissed", true).apply()
+                    "high_temp" -> prefs.edit().putBoolean("temp_alarm_dismissed", true).apply()
+                    "battery_empty" -> prefs.edit().putBoolean("battery_empty_dismissed", true).apply()
+                }
+                
+                // Dismiss the notification
                 notificationManager.cancel(notificationId)
-                Toast.makeText(context, "Notification dismissed", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, "Notification dismissed - No more sound/vibration for this alert", Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -44,14 +55,18 @@ class AlarmActionReceiver : BroadcastReceiver() {
         alarmType: String?
     ) {
         val title = when (alarmType) {
-            "low_battery" -> "馃攪 Low Battery (Silenced)"
-            "high_temp" -> "馃攪 High Temperature (Silenced)"
-            else -> "馃攪 Alarm Silenced"
+            "critical_battery" -> "🔇 Critical Battery (Silenced)"
+            "low_battery" -> "🔇 Low Battery (Silenced)"
+            "high_temp" -> "🔇 High Temperature (Silenced)"
+            "battery_empty" -> "🔇 Battery Empty (Silenced)"
+            else -> "🔇 Alarm Silenced"
         }
         
         val message = when (alarmType) {
+            "critical_battery" -> "Battery is critical - Sound/Vibration disabled"
             "low_battery" -> "Battery SOC is low - Sound/Vibration disabled"
             "high_temp" -> "Temperature is high - Sound/Vibration disabled"
+            "battery_empty" -> "Battery is at 0% - Sound/Vibration disabled"
             else -> "Alarm condition active - Sound/Vibration disabled"
         }
         
