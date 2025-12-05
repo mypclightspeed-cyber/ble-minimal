@@ -77,6 +77,7 @@ class MeterActivity : AppCompatActivity() {
     private var lastSocAlarmState = 0
     private var mediaPlayer: MediaPlayer? = null
     private var vibrator: Vibrator? = null
+    private var isLowBatteryAlarm = false // Track if banner is showing low battery alarm
 
     // Countdown variables
     private var countdownSeconds = 30
@@ -190,9 +191,6 @@ class MeterActivity : AppCompatActivity() {
             setBackgroundColor(Color.parseColor("#DC2626"))
             visibility = View.GONE
             isClickable = true
-            setOnClickListener {
-                openRelevantSettings()
-            }
         }
 
         btnScan = Button(this).apply { text = "Scan Amitis Battery" }
@@ -420,8 +418,22 @@ class MeterActivity : AppCompatActivity() {
         bluetoothAdapter = (getSystemService(BLUETOOTH_SERVICE) as BluetoothManager).adapter
         scanner = bluetoothAdapter?.bluetoothLeScanner
 
-        // Initialize vibrator
-        vibrator = getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+        // Initialize vibrator with null check
+        vibrator = getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+
+        // Set up banner click listener
+        bannerWarn.setOnClickListener {
+            if (isLowBatteryAlarm) {
+                // Stop alarm when banner is tapped
+                stopAlarm()
+                bannerWarn.visibility = View.GONE
+                isLowBatteryAlarm = false
+                toast("Alarm stopped")
+            } else {
+                // Original behavior for other warnings
+                openRelevantSettings()
+            }
+        }
 
         adapterLv = ArrayAdapter(this, android.R.layout.simple_list_item_1, ArrayList())
         list.adapter = adapterLv
@@ -473,19 +485,30 @@ class MeterActivity : AppCompatActivity() {
 
     private fun startVibration() {
         try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                // For Android 8.0 (Oreo) and above
-                val effect = VibrationEffect.createWaveform(
-                    longArrayOf(500, 500),  // Vibration pattern: vibrate for 500ms, pause for 500ms
-                    0  // Repeat from the beginning
-                )
-                vibrator?.vibrate(effect)
-            } else {
-                // For older Android versions
-                vibrator?.vibrate(longArrayOf(500, 500), 0)
+            vibrator?.let { v ->
+                // Check if device has vibrator
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.HONEYCOMB_MR1) {
+                    if (!v.hasVibrator()) {
+                        return
+                    }
+                }
+                
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    // For Android 8.0 (Oreo) and above
+                    val effect = VibrationEffect.createWaveform(
+                        longArrayOf(500, 500),  // Vibration pattern: vibrate for 500ms, pause for 500ms
+                        0  // Repeat from the beginning
+                    )
+                    v.vibrate(effect)
+                } else {
+                    // For older Android versions - need VIBRATE permission
+                    v.vibrate(longArrayOf(500, 500), 0)
+                }
             }
         } catch (e: Exception) {
             e.printStackTrace()
+            // Log vibration error
+            android.util.Log.e("MeterActivity", "Vibration failed: ${e.message}")
         }
     }
 
@@ -500,6 +523,7 @@ class MeterActivity : AppCompatActivity() {
             
             vibrator?.cancel()
             isAlarmActive = false
+            isLowBatteryAlarm = false
         } catch (e: Exception) {
             e.printStackTrace()
         }
@@ -512,6 +536,7 @@ class MeterActivity : AppCompatActivity() {
                     if (!isAlarmActive) {
                         // SOC just dropped below threshold
                         isAlarmActive = true
+                        isLowBatteryAlarm = true
                         playAlarmSound()
                         startVibration()
                         
@@ -521,10 +546,14 @@ class MeterActivity : AppCompatActivity() {
                         // Optionally change gauge color to red when alarm is active
                         gauge.setPercent(currentSOC)
                         
-                        // You could also flash a warning banner
-                        bannerWarn.text = "⚠️ LOW BATTERY: $currentSOC% - Connect Charger!"
+                        // Show warning banner
+                        bannerWarn.text = "⚠️ LOW BATTERY: $currentSOC% - Tap to stop alarm!"
                         bannerWarn.setBackgroundColor(Color.parseColor("#DC2626"))
                         bannerWarn.visibility = View.VISIBLE
+                        bannerWarn.isClickable = true
+                    } else if (isAlarmActive) {
+                        // Update banner text with current SOC
+                        bannerWarn.text = "⚠️ LOW BATTERY: $currentSOC% - Tap to stop alarm!"
                     }
                 }
                 currentSOC > ALARM_SOC_THRESHOLD -> {
@@ -532,6 +561,7 @@ class MeterActivity : AppCompatActivity() {
                         // SOC has risen above threshold, stop alarm
                         stopAlarm()
                         bannerWarn.visibility = View.GONE
+                        isLowBatteryAlarm = false
                     }
                 }
                 currentSOC == 0 -> {
@@ -542,6 +572,7 @@ class MeterActivity : AppCompatActivity() {
                     bannerWarn.text = "⚠️ BATTERY EMPTY: 0% - Connect Charger Immediately!"
                     bannerWarn.setBackgroundColor(Color.parseColor("#991B1B"))
                     bannerWarn.visibility = View.VISIBLE
+                    isLowBatteryAlarm = false // This is not the low battery alarm
                 }
             }
             lastSocAlarmState = currentSOC
@@ -553,6 +584,7 @@ class MeterActivity : AppCompatActivity() {
             stopAlarm()
             bannerWarn.visibility = View.GONE
             isAlarmActive = false
+            isLowBatteryAlarm = false
         }
     }
 
@@ -1005,22 +1037,35 @@ class MeterActivity : AppCompatActivity() {
     }
 
     private fun updateWarningBanner() {
+        // Don't update if it's showing low battery alarm
+        if (isLowBatteryAlarm) {
+            return
+        }
+        
         val btOn = bluetoothAdapter?.isEnabled == true
         val locOn = isLocationEnabled(this)
         when {
             !btOn && !locOn -> { 
                 bannerWarn.text = "Bluetooth and Location are OFF - Tap to enable"
                 bannerWarn.visibility = View.VISIBLE 
+                isLowBatteryAlarm = false
             }
             !btOn -> { 
                 bannerWarn.text = "Bluetooth is OFF - Tap to enable"
                 bannerWarn.visibility = View.VISIBLE 
+                isLowBatteryAlarm = false
             }
             !locOn -> { 
                 bannerWarn.text = "Location is OFF - Tap to enable"
                 bannerWarn.visibility = View.VISIBLE 
+                isLowBatteryAlarm = false
             }
-            else -> bannerWarn.visibility = View.GONE
+            else -> {
+                // Only hide if not showing low battery alarm
+                if (!isLowBatteryAlarm) {
+                    bannerWarn.visibility = View.GONE
+                }
+            }
         }
     }
 
@@ -1375,6 +1420,10 @@ class MeterActivity : AppCompatActivity() {
         
         // Stop alarm before disconnecting
         stopAlarm()
+        
+        // Release media player resources
+        mediaPlayer?.release()
+        mediaPlayer = null
         
         disconnectFromCurrentDevice()
         super.onDestroy()
