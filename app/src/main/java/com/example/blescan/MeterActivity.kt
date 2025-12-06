@@ -295,7 +295,7 @@ class MeterActivity : AppCompatActivity() {
             }
             val valueTv = TextView(this).apply {
                 text = "-"
-                textSize = 26f
+                textSize = 20f
                 setTextColor(Color.WHITE)
             }
             
@@ -485,7 +485,7 @@ class MeterActivity : AppCompatActivity() {
                 enableVibration(true)
                 enableLights(true)
                 lightColor = Color.RED
-                vibrationPattern = longArrayOf(0, 1500, 1250, 1500)
+                vibrationPattern = longArrayOf(0, 500, 1000, 500)
                 lockscreenVisibility = NotificationCompat.VISIBILITY_PUBLIC
             }
             notificationManager?.createNotificationChannel(channel)
@@ -692,13 +692,13 @@ class MeterActivity : AppCompatActivity() {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 // For Android 8.0 (Oreo) and above
                 val effect = VibrationEffect.createWaveform(
-                    longArrayOf(1500, 1500),
+                    longArrayOf(500, 500),
                     0
                 )
                 vibrator?.vibrate(effect)
             } else {
                 // For older Android versions
-                vibrator?.vibrate(longArrayOf(1500, 1500), 0)
+                vibrator?.vibrate(longArrayOf(500, 500), 0)
             }
         } catch (e: Exception) {
             e.printStackTrace()
