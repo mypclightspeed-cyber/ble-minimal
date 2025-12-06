@@ -485,7 +485,7 @@ class MeterActivity : AppCompatActivity() {
                 enableVibration(true)
                 enableLights(true)
                 lightColor = Color.RED
-                vibrationPattern = longArrayOf(500, 1500,500)
+                vibrationPattern = longArrayOf(0,500, 1000,500)
                 lockscreenVisibility = NotificationCompat.VISIBILITY_PUBLIC
             }
             notificationManager?.createNotificationChannel(channel)
@@ -526,7 +526,7 @@ class MeterActivity : AppCompatActivity() {
             .setOngoing(true)
             .setColor(ContextCompat.getColor(this, android.R.color.holo_red_dark))
             .setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM))
-            .setVibrate(longArrayOf(500, 1500,500))
+            .setVibrate(longArrayOf(0,500, 1000,500))
             .addAction(
                 android.R.drawable.ic_menu_close_clear_cancel,
                 "Silence Alarm",
@@ -571,7 +571,7 @@ class MeterActivity : AppCompatActivity() {
             .setOngoing(true)
             .setColor(ContextCompat.getColor(this, android.R.color.holo_orange_dark))
             .setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM))
-            .setVibrate(longArrayOf(500, 1500,500))
+            .setVibrate(longArrayOf(0,500, 1000,500))
             .addAction(
                 android.R.drawable.ic_menu_close_clear_cancel,
                 "Silence Alarm",
@@ -692,13 +692,13 @@ class MeterActivity : AppCompatActivity() {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 // For Android 8.0 (Oreo) and above
                 val effect = VibrationEffect.createWaveform(
-                    longArrayOf(500, 1500),
-                    500
+                    longArrayOf(500, 1000),
+                    0
                 )
                 vibrator?.vibrate(effect)
             } else {
                 // For older Android versions
-                vibrator?.vibrate(longArrayOf(500, 1500), 500)
+                vibrator?.vibrate(longArrayOf(500, 1000), 0)
             }
         } catch (e: Exception) {
             e.printStackTrace()
