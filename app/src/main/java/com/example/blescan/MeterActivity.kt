@@ -72,7 +72,7 @@ class MeterActivity : AppCompatActivity() {
     private val TEMP_CELL_UNDERVOLTAGE_RELEASE = 2.1f
 
     // Alarm thresholds
-    private val ALARM_SOC_THRESHOLD = 5
+    private val ALARM_SOC_THRESHOLD = 15
     private val ALARM_TEMP_THRESHOLD = 65.0
 
     // Notification constants
